@@ -7,8 +7,8 @@ window.storage) into a standalone mobile-first PWA he fully owns.
 
 ## Current phase
 
-**Phase 0 — Scoping.** Questions asked to Martin (hosting / existing data /
-post-parity improvements). Waiting for answers before any build work.
+**Phase 2 — Build.** Phase 0 + Phase 1 gates are closed (all decisions below).
+Reference design: ARCHITECTURE.md.
 
 ## Key constraints (from kickoff brief — hard rules)
 
@@ -68,18 +68,30 @@ Three tabs:
   French install note for phone home screen. Then approved improvements,
   one at a time.
 
-## Decisions
+## Decisions (validated by Martin)
 
 - App lives at the **repo root** (repo was empty and is dedicated to this
   project; simplest for CI/deploy).
+- **Hosting: GitHub Pages** from this repo via GitHub Actions
+  (Vite `base=/10_Jobseeker/`). (Phase 0)
+- **No data import needed** — Martin starts from zero; the app boots empty
+  with the onboarding checklist. No one-shot text importer. (Phase 0)
+- **Post-parity improvements: all four approved** — order: LinkedIn URL field
+  → dark mode → due-today badge → activity stats. One at a time, each
+  validated before the next. (Phase 0)
+- **Company status list (8, validated)**: À contacter · Contacté ·
+  En discussion · RDV prévu · Proposition envoyée · Gagné · Refusé/Sans suite
+  · En veille — stored by stable keys, see ARCHITECTURE.md §3. (Phase 1)
+- **"Relance faite" reschedule offsets (+3/+7/+14) count from TODAY**, not
+  from the previous planned date. (Phase 1)
+- **Contact→company: link to a company record OR free text**; deleting a
+  company converts its contacts' links to free text, never deletes contacts.
+  (Phase 1)
+- **Martin's phone is Android** — install note targets Chrome/Android;
+  icon badge via `setAppBadge` is well supported there. (Phase 1)
+- **Persistence: localStorage** behind a single storage module — rationale in
+  ARCHITECTURE.md §5.
 
 ## Open questions
 
-1. Hosting: Vercel / GitHub Pages / local only? (asked in Phase 0)
-2. Existing data to import? If yes Martin pastes a "point pour Claude" export
-   → build one-shot importer for that text format. (asked in Phase 0)
-3. Which post-parity improvements: activity stats, due-today badge, LinkedIn
-   URL field on contacts, dark mode? (asked in Phase 0)
-4. EXACT company status list (source artifact unavailable) — recover from
-   Martin's pasted export/artifact, else propose a list in Phase 1 and get it
-   validated before coding.
+None blocking. (Ship checklist lives in the task list / ARCHITECTURE.md.)
