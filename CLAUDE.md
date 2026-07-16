@@ -7,8 +7,15 @@ window.storage) into a standalone mobile-first PWA he fully owns.
 
 ## Current phase
 
-**Phase 2 — Build.** Phase 0 + Phase 1 gates are closed (all decisions below).
-Reference design: ARCHITECTURE.md.
+**Phase 2 COMPLETE — Phase 3 (ship) pending merge to `main`.**
+The app is feature-complete on branch `claude/radar-pwa-refactor-2ck5oa`:
+56 unit tests, two adversarial multi-agent review passes (architecture doc,
+then source code — all confirmed findings fixed), full Playwright
+end-to-end drive at 380px (all flows, zero console errors). The GitHub
+Pages deploy workflow ships on the first push to `main`; README carries the
+French install note. Next after ship: approved improvements one at a time
+(LinkedIn field → dark mode → due-today badge → activity stats), each
+validated by Martin before the next.
 
 ## Key constraints (from kickoff brief — hard rules)
 

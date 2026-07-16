@@ -2,13 +2,13 @@ import { useState } from 'react'
 import { useRadar } from '../state/radar.js'
 import { STATUSES, statusOf } from '../config/statuses.js'
 import {
-  addDays,
   compareByFollowUpUrgency,
   countdownLabel,
   daysUntil,
   dueLabel,
   formatFR,
   isDueSoon,
+  todayLocal,
 } from '../lib/dates.js'
 import { buildPoint } from '../lib/pointPourClaude.js'
 import { copyText } from '../lib/clipboard.js'
@@ -185,6 +185,7 @@ export default function Tableau({ navigate }) {
       if (ok) {
         showToast({ message: 'Point copié ✅' })
       } else {
+        showToast({ message: 'Copie automatique impossible', kind: 'error' })
         setCopyFallback(text)
       }
     })
@@ -221,7 +222,9 @@ export default function Tableau({ navigate }) {
           className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-left text-sm font-medium text-amber-200"
         >
           💾 Pense à exporter tes données{' '}
-          {lastExport ? `(dernier export : ${formatFR(lastExport.slice(0, 10))})` : '(jamais fait)'}
+          {lastExport
+            ? `(dernier export : ${formatFR(todayLocal(new Date(lastExport)))})`
+            : '(jamais fait)'}
         </button>
       )}
 
@@ -232,7 +235,7 @@ export default function Tableau({ navigate }) {
           missionSet={Boolean(doc.settings.missionEndDate)}
           onAddCompany={() => navigate('entreprises', { openForm: true })}
           onAddContact={() => navigate('contacts', { openForm: true })}
-          onSetMission={openMissionSheet}
+          onSetMission={readOnly ? () => {} : openMissionSheet}
         />
       ) : (
         <>
@@ -312,6 +315,7 @@ export default function Tableau({ navigate }) {
           )}
           <textarea
             readOnly
+            autoFocus
             rows={10}
             value={copyFallback ?? ''}
             onFocus={(e) => e.target.select()}

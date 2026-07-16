@@ -176,6 +176,75 @@ describe('migrations', () => {
     expect(s.getItem('radar:data:backup:v0')).toBe(v0) // untouched copy
     const persisted = JSON.parse(s.getItem(DATA_KEY))
     expect(persisted.schemaVersion).toBe(CURRENT_SCHEMA_VERSION)
+    // Revision bumped so old-code tabs fail the guard instead of clobbering.
+    expect(persisted.revision).toBe(1)
+  })
+})
+
+describe('unknown-field preservation (forward compatibility)', () => {
+  it('keeps unknown fields through load()', () => {
+    const doc = docWithData()
+    doc.companies[0].linkedinUrl = 'https://linkedin.com/company/wandercraft'
+    doc.contacts[0].phone = '+33 6 12 34 56 78'
+    doc.settings.theme = 'dark'
+    doc.futureTopLevel = { a: 1 }
+    const s = fakeStorage({ [DATA_KEY]: JSON.stringify(doc) })
+    const r = load(s)
+    expect(r.status).toBe('ok')
+    expect(r.doc.companies[0].linkedinUrl).toBe(
+      'https://linkedin.com/company/wandercraft',
+    )
+    expect(r.doc.contacts[0].phone).toBe('+33 6 12 34 56 78')
+    expect(r.doc.settings.theme).toBe('dark')
+    expect(r.doc.futureTopLevel).toEqual({ a: 1 })
+  })
+
+  it('keeps unknown fields through export → import, minus the exportedAt stamp', () => {
+    const doc = docWithData()
+    doc.companies[0].linkedinUrl = 'https://example.com'
+    const r = parseImport(exportJSON(doc))
+    expect(r.ok).toBe(true)
+    expect(r.doc.companies[0].linkedinUrl).toBe('https://example.com')
+    expect('exportedAt' in r.doc).toBe(false) // stamp stripped, round trip symmetric
+  })
+})
+
+describe('newer-version protection mid-session', () => {
+  it('save refuses and latches read-only when a newer schema was stored meanwhile', () => {
+    const s = fakeStorage()
+    const store = createStore(s)
+    store.save(docWithData())
+    const newer = JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+      revision: 99,
+      settings: {},
+      companies: [],
+      contacts: [],
+    })
+    s.setItem(DATA_KEY, newer) // a newer app version wrote (PWA update in another tab)
+    expect(store.save(emptyDoc())).toEqual({ ok: false, error: 'newer-version' })
+    expect(store.readOnly).toBe(true)
+    // Reload must not rebase the guard; every later write stays refused.
+    expect(store.reload().status).toBe('newer-version')
+    expect(store.save(emptyDoc())).toEqual({ ok: false, error: 'read-only' })
+    expect(s.getItem(DATA_KEY)).toBe(newer) // never downgraded
+  })
+})
+
+describe('undoImport guard', () => {
+  it('refuses undo once storage moved past the imported revision', () => {
+    const s = fakeStorage()
+    const store = createStore(s)
+    store.save(docWithData())
+    const applied = store.applyImport(parseImport(exportJSON(emptyDoc())).doc)
+    expect(applied.ok).toBe(true)
+    store.save(docWithData()) // a later write supersedes the import
+    expect(store.undoImport(applied.snapshotKey)).toEqual({
+      ok: false,
+      error: 'conflict',
+    })
+    // The later write survives.
+    expect(JSON.parse(s.getItem(DATA_KEY)).companies).toHaveLength(1)
   })
 })
 

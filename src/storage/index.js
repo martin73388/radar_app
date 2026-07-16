@@ -74,8 +74,12 @@ export function hasDuplicateIds(doc) {
   return new Set(ids).size !== ids.length
 }
 
+// Normalization PRESERVES unknown fields (a doc written by a slightly newer
+// same-schema build must survive a round trip untouched); it only fills
+// missing/invalid known fields with defaults.
 function normalizeCompany(c) {
   return {
+    ...c,
     id: typeof c.id === 'string' && c.id ? c.id : makeId('cmp'),
     name: c.name,
     sector: typeof c.sector === 'string' ? c.sector : '',
@@ -91,6 +95,7 @@ function normalizeCompany(c) {
 
 function normalizeContact(p) {
   return {
+    ...p,
     id: typeof p.id === 'string' && p.id ? p.id : makeId('cnt'),
     name: p.name,
     companyId: typeof p.companyId === 'string' && p.companyId ? p.companyId : null,
@@ -104,12 +109,14 @@ function normalizeContact(p) {
   }
 }
 
-/** Fill missing optional fields with defaults; never rewrites present data. */
+/** Fill missing known fields with defaults; unknown fields pass through. */
 export function normalizeDoc(doc) {
   return {
+    ...doc,
     schemaVersion: doc.schemaVersion,
     revision: Number.isInteger(doc.revision) ? doc.revision : 0,
     settings: {
+      ...doc.settings,
       missionEndDate: doc.settings?.missionEndDate ?? null,
       lastExportAt: doc.settings?.lastExportAt ?? null,
     },
@@ -196,6 +203,9 @@ export function load(storage, { migrations = MIGRATIONS } = {}) {
 
   if (needsMigration) {
     // Persist immediately after the full chain succeeded — never mid-chain.
+    // Bump the revision so tabs still running the old code fail the
+    // revision guard instead of silently overwriting the migrated document.
+    doc = { ...doc, revision: doc.revision + 1 }
     try {
       storage.setItem(DATA_KEY, JSON.stringify(doc))
     } catch {
@@ -225,6 +235,11 @@ export function parseImport(text, { migrations = MIGRATIONS } = {}) {
     return { ok: false, error: 'not-json' }
   }
   if (!looksLikeDoc(parsed)) return { ok: false, error: 'not-radar' }
+  if (isPlainObject(parsed) && 'exportedAt' in parsed) {
+    // Strip the stamp exportJSON added, so export → import is symmetric.
+    const { exportedAt: _stamp, ...rest } = parsed
+    parsed = rest
+  }
   if (parsed.schemaVersion > CURRENT_SCHEMA_VERSION) {
     return { ok: false, error: 'newer-version' }
   }
@@ -250,27 +265,43 @@ export function parseImport(text, { migrations = MIGRATIONS } = {}) {
  */
 export function createStore(storage) {
   const initial = load(storage)
-  const readOnly = initial.status === 'newer-version'
+  // Latches to true and never unlatches (restart the app to clear): once a
+  // newer-version document is seen, this tab must never write again.
+  let readOnly = initial.status === 'newer-version'
   let base = Number.isInteger(initial.doc.revision) ? initial.doc.revision : 0
+  // Revision applyImport wrote — undo is only valid while it is still stored.
+  let importedRevision = null
 
-  function storedRevision() {
+  function storedMeta() {
     try {
       const raw = storage.getItem(DATA_KEY)
       if (raw == null) return null
       const parsed = JSON.parse(raw)
-      return isPlainObject(parsed) && Number.isInteger(parsed.revision)
-        ? parsed.revision
-        : null
+      if (!isPlainObject(parsed)) return null
+      return {
+        revision: Number.isInteger(parsed.revision) ? parsed.revision : null,
+        schemaVersion: Number.isInteger(parsed.schemaVersion)
+          ? parsed.schemaVersion
+          : null,
+      }
     } catch {
       return null
     }
   }
 
-  /** Errors: 'read-only' | 'conflict' | 'write-failed' */
+  /** Errors: 'read-only' | 'newer-version' | 'conflict' | 'write-failed' */
   function save(doc) {
     if (readOnly) return { ok: false, error: 'read-only' }
-    const stored = storedRevision()
-    if (stored !== null && stored !== base) return { ok: false, error: 'conflict' }
+    const meta = storedMeta()
+    if (meta?.schemaVersion != null && meta.schemaVersion > CURRENT_SCHEMA_VERSION) {
+      // A newer app version wrote meanwhile (typical PWA update in another
+      // tab): never downgrade its document.
+      readOnly = true
+      return { ok: false, error: 'newer-version' }
+    }
+    if (meta?.revision != null && meta.revision !== base) {
+      return { ok: false, error: 'conflict' }
+    }
     const next = {
       ...doc,
       schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -288,6 +319,10 @@ export function createStore(storage) {
   /** Re-read from storage and rebase (after a conflict or storage event). */
   function reload() {
     const result = load(storage)
+    if (result.status === 'newer-version') {
+      readOnly = true
+      return result // do NOT rebase: this tab must never pass the guard again
+    }
     base = Number.isInteger(result.doc.revision) ? result.doc.revision : 0
     return result
   }
@@ -307,23 +342,35 @@ export function createStore(storage) {
     }
     const saved = save(doc)
     if (!saved.ok) return saved
+    importedRevision = saved.doc.revision
     return { ...saved, snapshotKey }
   }
 
-  /** Restore the pre-import snapshot ("Annuler l'import"). */
+  /**
+   * Restore the pre-import snapshot ("Annuler l'import") — but only while
+   * the stored document is still the one the import wrote; any later write
+   * (this tab or another) makes the undo a destructive clobber, so refuse.
+   * Errors: 'read-only' | 'conflict' | 'write-failed'
+   */
   function undoImport(snapshotKey) {
+    if (readOnly) return { ok: false, error: 'read-only' }
+    const meta = storedMeta()
+    if (importedRevision == null || meta?.revision !== importedRevision) {
+      return { ok: false, error: 'conflict' }
+    }
     let raw
     try {
       raw = storage.getItem(snapshotKey)
     } catch {
-      return { ok: false }
+      return { ok: false, error: 'write-failed' }
     }
-    if (raw == null) return { ok: false }
+    if (raw == null) return { ok: false, error: 'write-failed' }
     try {
       storage.setItem(DATA_KEY, raw)
     } catch {
-      return { ok: false }
+      return { ok: false, error: 'write-failed' }
     }
+    importedRevision = null
     const result = reload()
     return { ok: true, doc: result.doc, status: result.status }
   }
@@ -339,12 +386,14 @@ export function createStore(storage) {
 
   return {
     initial,
-    readOnly,
     save,
     reload,
     applyImport,
     undoImport,
     getRaw,
+    get readOnly() {
+      return readOnly
+    },
     get baseRevision() {
       return base
     },

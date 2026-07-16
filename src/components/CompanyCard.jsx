@@ -28,7 +28,7 @@ export default function CompanyCard({ company, onClick }) {
         <StatusPill statusKey={company.status} />
       </div>
       {company.notes && (
-        <p className="mt-2 line-clamp-2 text-sm leading-snug text-slate-500">
+        <p className="mt-2 line-clamp-2 text-sm leading-snug text-slate-400">
           {company.notes}
         </p>
       )}

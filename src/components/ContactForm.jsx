@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useRadar } from '../state/radar.js'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import DateField from './DateField.jsx'
@@ -11,7 +11,7 @@ const inputCls =
  * Add/edit contact form. Company: link to a record (select) OR free text —
  * validated by Martin (Phase 1).
  */
-export default function ContactForm({ contact, onSave, onDelete, onClose }) {
+export default function ContactForm({ contact, onSave, onDelete, onClose, onDirtyChange }) {
   const { doc } = useRadar()
   const editing = Boolean(contact)
   const [name, setName] = useState(contact?.name ?? '')
@@ -26,6 +26,19 @@ export default function ContactForm({ contact, onSave, onDelete, onClose }) {
   const sortedCompanies = [...doc.companies].sort((a, b) =>
     a.name.localeCompare(b.name, 'fr'),
   )
+
+  // Report unsaved edits so the sheet can guard backdrop/X dismissal.
+  const dirty =
+    name !== (contact?.name ?? '') ||
+    companyId !== (contact?.companyId ?? '') ||
+    companyName !== (contact?.companyName ?? '') ||
+    role !== (contact?.role ?? '') ||
+    notes !== (contact?.notes ?? '') ||
+    lastContact !== (contact?.lastContact ?? null) ||
+    nextFollowUp !== (contact?.nextFollowUp ?? null)
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
   function submit(e) {
     e.preventDefault()

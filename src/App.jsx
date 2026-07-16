@@ -21,6 +21,9 @@ export default function App() {
 
   const [doc, setDoc] = useState(store.initial.doc)
   const [saveError, setSaveError] = useState(null) // 'conflict' | 'write-failed' | null
+  const [readOnly, setReadOnly] = useState(store.readOnly)
+  // A newer app version wrote the data mid-session (PWA update in another tab).
+  const [newerVersionDetected, setNewerVersionDetected] = useState(false)
   const [corruptDismissed, setCorruptDismissed] = useState(false)
   const [toast, setToast] = useState(null)
   const [tab, setTab] = useState('tableau')
@@ -44,7 +47,10 @@ export default function App() {
     }
   }, [])
 
-  // ----- mutations: write-through with conflict/failure surfacing -----
+  const showToast = useCallback((t) => setToast({ ...t, key: Date.now() }), [])
+  const dismissToast = useCallback(() => setToast(null), [])
+
+  // ----- mutations: write-through, every failure surfaced -----
   const mutate = useCallback(
     (fn) => {
       const next = fn(docRef.current)
@@ -60,10 +66,15 @@ export default function App() {
         // every subsequent mutation.
         setDoc(next)
         setSaveError('write-failed')
+      } else if (r.error === 'newer-version') {
+        setReadOnly(true)
+        setNewerVersionDetected(true)
+      } else if (r.error === 'read-only') {
+        showToast({ message: 'Lecture seule — modification impossible', kind: 'error' })
       }
       return r
     },
-    [store],
+    [store, showToast],
   )
 
   // ----- adopt writes from other tabs when we have nothing pending -----
@@ -72,13 +83,18 @@ export default function App() {
       if (e.key !== DATA_KEY && e.key !== null) return
       if (saveErrorRef.current) return // keep the conflict/failure banner
       const r = store.reload()
-      if (r.status === 'ok' || r.status === 'fresh') setDoc(r.doc)
+      if (r.status === 'ok' || r.status === 'fresh') {
+        setDoc(r.doc)
+      } else if (r.status === 'newer-version') {
+        // Show the newer data, but this tab must never write again.
+        setDoc(r.doc)
+        setReadOnly(true)
+        setNewerVersionDetected(true)
+      }
     }
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [store])
-
-  const showToast = useCallback((t) => setToast({ ...t, key: Date.now() }), [])
 
   const actions = useMemo(() => {
     const updateContact = (id, patch) =>
@@ -172,8 +188,8 @@ export default function App() {
   const consumeCmd = useCallback(() => setCmd(null), [])
 
   const radarValue = useMemo(
-    () => ({ doc, actions, readOnly: store.readOnly, today, showToast }),
-    [doc, actions, store.readOnly, today, showToast],
+    () => ({ doc, actions, readOnly, today, showToast }),
+    [doc, actions, readOnly, today, showToast],
   )
 
   const status = store.initial.status
@@ -235,6 +251,26 @@ export default function App() {
                   rouvre l’app pour la mettre à jour.
                 </Banner>
               )}
+              {newerVersionDetected && status !== 'newer-version' && (
+                <Banner
+                  tone="warn"
+                  actions={[
+                    {
+                      label: 'Voir les données à jour',
+                      onClick: () => {
+                        const r = store.reload()
+                        setDoc(r.doc)
+                        setSaveError(null)
+                      },
+                    },
+                    { label: 'Exporter ma copie', onClick: exportInMemory },
+                  ]}
+                >
+                  Les données ont été mises à jour par une version plus récente
+                  de Radar (autre onglet). <strong>Lecture seule</strong> ici —
+                  ferme et rouvre l’app pour continuer.
+                </Banner>
+              )}
               {status === 'storage-unavailable' && (
                 <Banner tone="error">
                   ⚠️ Stockage indisponible sur cet appareil : tes modifications
@@ -254,6 +290,18 @@ export default function App() {
                           setDoc(r.doc)
                           setSaveError(null)
                           showToast({ message: 'Enregistré ✅' })
+                        } else if (r.error === 'conflict') {
+                          setSaveError('conflict')
+                        } else if (r.error === 'newer-version') {
+                          setReadOnly(true)
+                          setNewerVersionDetected(true)
+                          setSaveError(null)
+                        } else {
+                          showToast({
+                            message:
+                              'Toujours impossible d’enregistrer — exporte tes données.',
+                            kind: 'error',
+                          })
                         }
                       },
                     },
@@ -274,6 +322,10 @@ export default function App() {
                         const r = store.reload()
                         setDoc(r.doc)
                         setSaveError(null)
+                        if (r.status === 'newer-version') {
+                          setReadOnly(true)
+                          setNewerVersionDetected(true)
+                        }
                       },
                     },
                     { label: 'Exporter ma copie', onClick: exportInMemory },
@@ -296,7 +348,7 @@ export default function App() {
           </main>
 
           <TabBar tab={tab} onChange={(t) => navigate(t)} />
-          <Toast toast={toast} onDismiss={() => setToast(null)} />
+          <Toast toast={toast} onDismiss={dismissToast} />
           <UpdateToast />
         </div>
       </UiContext.Provider>

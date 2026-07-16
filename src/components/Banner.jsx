@@ -20,7 +20,7 @@ export default function Banner({ tone = 'warn', children, actions = [], onDismis
             type="button"
             onClick={onDismiss}
             aria-label="Fermer"
-            className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-full opacity-70"
+            className="-mr-2 -mt-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-full opacity-70"
           >
             <IconX className="h-4 w-4" />
           </button>
@@ -33,7 +33,7 @@ export default function Banner({ tone = 'warn', children, actions = [], onDismis
               key={a.label}
               type="button"
               onClick={a.onClick}
-              className="rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold active:bg-white/20"
+              className="min-h-11 rounded-lg bg-white/10 px-3 text-xs font-semibold active:bg-white/20"
             >
               {a.label}
             </button>

@@ -6,6 +6,13 @@ import { exportJSON, parseImport } from '../storage/index.js'
 import { downloadText } from '../lib/download.js'
 import { copyText } from '../lib/clipboard.js'
 import { formatFR, todayLocal } from '../lib/dates.js'
+
+const UNDO_ERRORS = {
+  conflict:
+    'Impossible d’annuler : les données ont déjà changé depuis l’import.',
+  'read-only': 'Lecture seule — annulation impossible.',
+  'write-failed': 'Impossible de restaurer (stockage indisponible ?).',
+}
 import { IconDownload, IconUpload, IconCopy } from '../ui/icons.jsx'
 
 const IMPORT_ERRORS = {
@@ -81,7 +88,10 @@ export default function BackupSheet({ open, onClose }) {
               showToast(
                 undo.ok
                   ? { message: 'Import annulé — données restaurées.' }
-                  : { message: 'Impossible de restaurer.', kind: 'error' },
+                  : {
+                      message: UNDO_ERRORS[undo.error] ?? 'Impossible de restaurer.',
+                      kind: 'error',
+                    },
               )
             },
           }
@@ -120,7 +130,7 @@ export default function BackupSheet({ open, onClose }) {
           </div>
           <p className="mt-2 font-mono text-xs tabular-nums text-slate-500">
             Dernier export :{' '}
-            {lastExport ? formatFR(lastExport.slice(0, 10)) : 'jamais'}
+            {lastExport ? formatFR(todayLocal(new Date(lastExport))) : 'jamais'}
           </p>
         </section>
 

@@ -16,7 +16,7 @@ export default function SearchBar({ value, onChange, placeholder }) {
           type="button"
           aria-label="Effacer la recherche"
           onClick={() => onChange('')}
-          className="absolute right-1 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-full text-slate-400"
+          className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-slate-400"
         >
           <IconX className="h-4 w-4" />
         </button>

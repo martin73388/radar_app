@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { STATUSES, TYPES } from '../config/statuses.js'
 import { useRadar } from '../state/radar.js'
 import ConfirmDialog from './ConfirmDialog.jsx'
@@ -8,7 +8,7 @@ const inputCls =
   'h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none'
 
 /** Add/edit company form (lives in a bottom sheet). */
-export default function CompanyForm({ company, onSave, onDelete, onClose }) {
+export default function CompanyForm({ company, onSave, onDelete, onClose, onDirtyChange }) {
   const { doc } = useRadar()
   const editing = Boolean(company)
   const [name, setName] = useState(company?.name ?? '')
@@ -23,6 +23,19 @@ export default function CompanyForm({ company, onSave, onDelete, onClose }) {
   const linkedContacts = editing
     ? doc.contacts.filter((p) => p.companyId === company.id).length
     : 0
+
+  // Report unsaved edits so the sheet can guard backdrop/X dismissal.
+  const dirty =
+    name !== (company?.name ?? '') ||
+    sector !== (company?.sector ?? '') ||
+    city !== (company?.city ?? '') ||
+    notes !== (company?.notes ?? '') ||
+    type !== (company?.type ?? 'freelance') ||
+    status !== (company?.status ?? 'to_contact') ||
+    priority !== (company?.priority ?? false)
+  useEffect(() => {
+    onDirtyChange?.(dirty)
+  }, [dirty, onDirtyChange])
 
   function submit(e) {
     e.preventDefault()

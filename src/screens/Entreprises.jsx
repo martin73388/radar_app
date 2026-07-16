@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useRadar } from '../state/radar.js'
 import { STATUSES, TYPES, statusOf } from '../config/statuses.js'
 import SearchBar from '../components/SearchBar.jsx'
 import CompanyCard from '../components/CompanyCard.jsx'
 import CompanyForm from '../components/CompanyForm.jsx'
 import BottomSheet from '../components/BottomSheet.jsx'
+import ConfirmDialog from '../components/ConfirmDialog.jsx'
 import Fab from '../components/Fab.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { IconBuilding } from '../ui/icons.jsx'
@@ -18,15 +19,42 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
   const { doc, actions, readOnly } = useRadar()
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState(null)
-  const [statusFilter, setStatusFilter] = useState(null)
-  const [sheet, setSheet] = useState(null) // { company: object | null }
+  // Initialized from cmd so a pipeline tap never flashes the unfiltered list.
+  const [statusFilter, setStatusFilter] = useState(cmd?.statusFilter ?? null)
+  const [sheet, setSheet] = useState(
+    cmd?.openForm && !readOnly ? { company: null } : null,
+  ) // { company: object | null }
+  const [formDirty, setFormDirty] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+  const statusRowRef = useRef(null)
+
+  function openSheet(s) {
+    setFormDirty(false)
+    setSheet(s)
+  }
+  function closeSheet() {
+    setSheet(null)
+    setFormDirty(false)
+    setConfirmClose(false)
+  }
+  // Backdrop/X never silently discard typed input.
+  const requestClose = () => (formDirty ? setConfirmClose(true) : closeSheet())
 
   useEffect(() => {
     if (!cmd) return
     if (cmd.statusFilter) setStatusFilter(cmd.statusFilter)
-    if (cmd.openForm && !readOnly) setSheet({ company: null })
+    if (cmd.openForm && !readOnly) openSheet({ company: null })
     onCmdConsumed()
   }, [cmd, onCmdConsumed, readOnly])
+
+  // Keep the active status chip visible (a pipeline tap can select a status
+  // whose chip is scrolled out of view).
+  useEffect(() => {
+    if (!statusFilter || !statusRowRef.current) return
+    statusRowRef.current
+      .querySelector(`[data-status="${statusFilter}"]`)
+      ?.scrollIntoView({ inline: 'center', block: 'nearest' })
+  }, [statusFilter])
 
   const q = search.trim().toLowerCase()
   const filtered = doc.companies
@@ -62,11 +90,12 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
           </button>
         ))}
       </div>
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div ref={statusRowRef} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
         {STATUSES.map((s) => (
           <button
             key={s.key}
             type="button"
+            data-status={s.key}
             onClick={() => setStatusFilter(statusFilter === s.key ? null : s.key)}
             className={chipCls(statusFilter === s.key)}
           >
@@ -103,24 +132,25 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
             <li key={c.id}>
               <CompanyCard
                 company={c}
-                onClick={() => !readOnly && setSheet({ company: c })}
+                onClick={() => !readOnly && openSheet({ company: c })}
               />
             </li>
           ))}
         </ul>
       )}
 
-      {!readOnly && <Fab label="Ajouter une entreprise" onClick={() => setSheet({ company: null })} />}
+      {!readOnly && <Fab label="Ajouter une entreprise" onClick={() => openSheet({ company: null })} />}
 
       <BottomSheet
         open={Boolean(sheet)}
-        onClose={() => setSheet(null)}
+        onClose={requestClose}
         title={sheet?.company ? 'Modifier l’entreprise' : 'Nouvelle entreprise'}
       >
         {sheet && (
           <CompanyForm
             company={sheet.company}
-            onClose={() => setSheet(null)}
+            onClose={closeSheet}
+            onDirtyChange={setFormDirty}
             onSave={(data) =>
               sheet.company
                 ? actions.updateCompany(sheet.company.id, data)
@@ -130,6 +160,15 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
           />
         )}
       </BottomSheet>
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Abandonner les modifications ?"
+        message="Les champs saisis ne seront pas enregistrés."
+        confirmLabel="Abandonner"
+        onCancel={() => setConfirmClose(false)}
+        onConfirm={closeSheet}
+      />
     </div>
   )
 }

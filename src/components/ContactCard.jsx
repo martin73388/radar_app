@@ -36,7 +36,7 @@ export default function ContactCard({ contact, onClick, onDone }) {
             </span>
           )}
         </div>
-        <p className="mt-2 font-mono text-xs tabular-nums text-slate-500">
+        <p className="mt-2 font-mono text-xs tabular-nums text-slate-400">
           {contact.lastContact
             ? `Dernier contact : ${formatFR(contact.lastContact)}`
             : 'Jamais contacté'}
@@ -47,7 +47,7 @@ export default function ContactCard({ contact, onClick, onDone }) {
         <button
           type="button"
           onClick={onDone}
-          className="mt-3 flex h-10 w-full items-center justify-center gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-sm font-medium text-teal-300 active:bg-teal-500/20"
+          className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-sm font-medium text-teal-300 active:bg-teal-500/20"
         >
           <IconCheck className="h-4 w-4" /> Relance faite
         </button>

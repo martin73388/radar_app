@@ -6,6 +6,7 @@ import ContactCard from '../components/ContactCard.jsx'
 import ContactForm from '../components/ContactForm.jsx'
 import ReschedulePrompt from '../components/ReschedulePrompt.jsx'
 import BottomSheet from '../components/BottomSheet.jsx'
+import ConfirmDialog from '../components/ConfirmDialog.jsx'
 import Fab from '../components/Fab.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { IconUsers } from '../ui/icons.jsx'
@@ -13,12 +14,29 @@ import { IconUsers } from '../ui/icons.jsx'
 export default function Contacts({ cmd, onCmdConsumed }) {
   const { doc, actions, readOnly } = useRadar()
   const [search, setSearch] = useState('')
-  const [sheet, setSheet] = useState(null) // { contact: object | null }
+  // Initialized from cmd so an onboarding tap opens the form immediately.
+  const [sheet, setSheet] = useState(
+    cmd?.openForm && !readOnly ? { contact: null } : null,
+  ) // { contact: object | null }
   const [rescheduling, setRescheduling] = useState(null)
+  const [formDirty, setFormDirty] = useState(false)
+  const [confirmClose, setConfirmClose] = useState(false)
+
+  function openSheet(s) {
+    setFormDirty(false)
+    setSheet(s)
+  }
+  function closeSheet() {
+    setSheet(null)
+    setFormDirty(false)
+    setConfirmClose(false)
+  }
+  // Backdrop/X never silently discard typed input.
+  const requestClose = () => (formDirty ? setConfirmClose(true) : closeSheet())
 
   useEffect(() => {
     if (!cmd) return
-    if (cmd.openForm && !readOnly) setSheet({ contact: null })
+    if (cmd.openForm && !readOnly) openSheet({ contact: null })
     onCmdConsumed()
   }, [cmd, onCmdConsumed, readOnly])
 
@@ -56,7 +74,7 @@ export default function Contacts({ cmd, onCmdConsumed }) {
             <li key={p.id}>
               <ContactCard
                 contact={p}
-                onClick={() => !readOnly && setSheet({ contact: p })}
+                onClick={() => !readOnly && openSheet({ contact: p })}
                 onDone={() => {
                   actions.markFollowUpDone(p.id)
                   setRescheduling(p)
@@ -67,17 +85,18 @@ export default function Contacts({ cmd, onCmdConsumed }) {
         </ul>
       )}
 
-      {!readOnly && <Fab label="Ajouter un contact" onClick={() => setSheet({ contact: null })} />}
+      {!readOnly && <Fab label="Ajouter un contact" onClick={() => openSheet({ contact: null })} />}
 
       <BottomSheet
         open={Boolean(sheet)}
-        onClose={() => setSheet(null)}
+        onClose={requestClose}
         title={sheet?.contact ? 'Modifier le contact' : 'Nouveau contact'}
       >
         {sheet && (
           <ContactForm
             contact={sheet.contact}
-            onClose={() => setSheet(null)}
+            onClose={closeSheet}
+            onDirtyChange={setFormDirty}
             onSave={(data) =>
               sheet.contact
                 ? actions.updateContact(sheet.contact.id, data)
@@ -87,6 +106,15 @@ export default function Contacts({ cmd, onCmdConsumed }) {
           />
         )}
       </BottomSheet>
+
+      <ConfirmDialog
+        open={confirmClose}
+        title="Abandonner les modifications ?"
+        message="Les champs saisis ne seront pas enregistrés."
+        confirmLabel="Abandonner"
+        onCancel={() => setConfirmClose(false)}
+        onConfirm={closeSheet}
+      />
 
       <ReschedulePrompt
         contact={rescheduling}

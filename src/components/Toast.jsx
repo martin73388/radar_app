@@ -33,7 +33,7 @@ export default function Toast({ toast, onDismiss }) {
               onDismiss()
               toast.action.onClick()
             }}
-            className="shrink-0 rounded-lg bg-teal-500/15 px-3 py-1.5 font-semibold text-teal-300 active:bg-teal-500/25"
+            className="min-h-11 shrink-0 rounded-lg bg-teal-500/15 px-3 font-semibold text-teal-300 active:bg-teal-500/25"
           >
             {toast.action.label}
           </button>

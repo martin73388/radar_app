@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import BottomSheet from './BottomSheet.jsx'
 import DateField from './DateField.jsx'
 import { addDays, formatFR, rescheduleOptions } from '../lib/dates.js'
@@ -14,6 +14,13 @@ export default function ReschedulePrompt({ contact, onPick, onClose }) {
   const { today } = useRadar()
   const [custom, setCustom] = useState(null)
   const open = Boolean(contact)
+  const minDate = addDays(today, 1)
+
+  // The component stays mounted across opens — reset the draft per contact so
+  // a stale custom date can never be committed for the wrong contact.
+  useEffect(() => {
+    setCustom(null)
+  }, [contact?.id])
 
   return (
     <BottomSheet open={open} onClose={onClose} title="Relance notée ✅">
@@ -47,13 +54,13 @@ export default function ReschedulePrompt({ contact, onPick, onClose }) {
                 label="Ou une date précise"
                 value={custom}
                 onChange={setCustom}
-                min={addDays(today, 1)}
+                min={minDate}
               />
             </div>
             <button
               type="button"
-              disabled={!custom}
-              onClick={() => custom && onPick(custom)}
+              disabled={!custom || custom < minDate}
+              onClick={() => custom && custom >= minDate && onPick(custom)}
               className="h-11 shrink-0 rounded-xl bg-teal-500 px-4 text-sm font-semibold text-slate-950 disabled:opacity-40"
             >
               OK
