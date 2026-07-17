@@ -262,6 +262,8 @@ export default function BackupSheet({ open, onClose }) {
                   placeholder="utilisateur/dépôt (ex. martin73388/radar-data)"
                   autoCapitalize="none"
                   autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
                 />
                 <input
                   aria-label="Jeton d’accès GitHub"
@@ -272,6 +274,10 @@ export default function BackupSheet({ open, onClose }) {
                   placeholder="github_pat_…"
                   autoCapitalize="none"
                   autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
                 />
                 <button
                   type="button"

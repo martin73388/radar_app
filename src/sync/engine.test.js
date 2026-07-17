@@ -318,6 +318,80 @@ describe('sync engine', () => {
     expect(states.at(-1).status).toBe('off')
   })
 
+  it('reconfiguring the SAME repo keeps device state (token renewal, no spurious conflict); a different repo resets it', () => {
+    const storage = fakeStorage({
+      'radar:sync:config': JSON.stringify({ repo: 'o/r', token: 'old', path: 'radar.json' }),
+      'radar:sync:state': JSON.stringify({
+        lastSyncedSha: 'sha1',
+        lastSyncedRevision: 3,
+        lastSyncAt: 't',
+      }),
+    })
+    const engine = createSyncEngine({
+      storage,
+      api: {
+        // Never resolves — keeps the follow-up cycle from overwriting state
+        // so we can assert the synchronous preservation logic.
+        fetchRemoteFile: () => new Promise(() => {}),
+        putRemoteFile: async () => ({ ok: true, sha: 's' }),
+      },
+      getDoc: () => localDoc(3, 'X'),
+      adopt: () => ({ ok: true, doc: localDoc(4, 'X') }),
+      onState: () => {},
+    })
+    engine.configure({ repo: 'o/r', token: 'new-renewed-token' })
+    expect(loadSyncState(storage).lastSyncedSha).toBe('sha1') // preserved
+    engine.configure({ repo: 'o/other', token: 'new-renewed-token' })
+    expect(loadSyncState(storage).lastSyncedSha).toBeNull() // new pairing → reset
+  })
+
+  it('disable() during an in-flight cycle does not resurrect state or flip the status back', async () => {
+    let resolveFetch
+    const storage = fakeStorage(configured)
+    const states = []
+    const engine = createSyncEngine({
+      storage,
+      api: {
+        fetchRemoteFile: () => new Promise((r) => (resolveFetch = r)),
+        putRemoteFile: async () => ({ ok: true, sha: 'sPushed' }),
+      },
+      getDoc: () => localDoc(2, 'Wandercraft'),
+      adopt: () => ({ ok: true, doc: localDoc(3, 'X') }),
+      onState: (s) => states.push(s),
+    })
+    const p = engine.syncNow() // starts; awaits the fetch
+    engine.disable() // opt out mid-flight
+    resolveFetch({ ok: true, exists: false }) // fetch resolves → cycle would push+succeed
+    await p
+    expect(engine.isConfigured()).toBe(false)
+    expect(states.at(-1).status).toBe('off') // never flips back to 'synced'
+    expect(loadSyncState(storage).lastSyncedSha).toBeNull() // state not resurrected
+  })
+
+  it('schedulePush is a no-op when nothing changed since the last sync (e.g. right after adopt)', () => {
+    const storage = fakeStorage({
+      ...configured,
+      'radar:sync:state': JSON.stringify({
+        lastSyncedSha: 'shaR',
+        lastSyncedRevision: 7,
+        lastSyncAt: 'x',
+      }),
+    })
+    const states = []
+    const engine = createSyncEngine({
+      storage,
+      api: {
+        fetchRemoteFile: async () => ({ ok: true, exists: false }),
+        putRemoteFile: async () => ({ ok: true, sha: 's' }),
+      },
+      getDoc: () => localDoc(7, 'X'), // revision == lastSyncedRevision
+      adopt: () => ({ ok: true, doc: localDoc(8, 'X') }),
+      onState: (s) => states.push(s),
+    })
+    engine.schedulePush()
+    expect(states).toHaveLength(0) // no 'pending' flip, no cycle scheduled
+  })
+
   it('schedulePush debounces and is blocked while a conflict is pending', async () => {
     vi.useFakeTimers()
     try {

@@ -63,20 +63,28 @@ export function createSyncEngine({
   let busy = false
   let queued = false
   let pushTimer = null
+  // Cancellation generation: disable()/configure() bump it so a cycle that is
+  // mid-flight when the user opts out (or reconfigures) can no longer write
+  // state or flip the status — its terminal writes become no-ops.
+  let epoch = 0
 
   function setState(patch) {
     state = { ...state, ...patch }
     onState({ ...state })
   }
 
-  function fail(errorCode) {
+  const alive = (gen) => gen === epoch
+
+  function fail(gen, errorCode) {
+    if (!alive(gen)) return
     setState({
       status: errorCode === 'network' ? 'offline' : 'error',
       errorCode: errorCode === 'network' ? null : errorCode,
     })
   }
 
-  function succeed() {
+  function succeed(gen) {
+    if (!alive(gen)) return
     setState({
       status: 'synced',
       errorCode: null,
@@ -85,7 +93,7 @@ export function createSyncEngine({
     })
   }
 
-  async function doPush(config, sha) {
+  async function doPush(config, sha, gen) {
     const doc = getDoc()
     // `revision` is a device-local counter — syncing it would make every
     // adopt dirty the file again and ping-pong commits between devices.
@@ -96,6 +104,7 @@ export function createSyncEngine({
       sha: sha ?? undefined,
       message: 'Radar sync',
     })
+    if (!alive(gen)) return
     if (!r.ok) {
       if (r.error === 'sha-conflict') {
         // Remote moved while we were pushing — re-run the full cycle.
@@ -103,7 +112,7 @@ export function createSyncEngine({
         setState({ status: 'pending', errorCode: null })
         return
       }
-      fail(r.error)
+      fail(gen, r.error)
       return
     }
     saveSyncState(storage, {
@@ -111,13 +120,14 @@ export function createSyncEngine({
       lastSyncedRevision: doc.revision,
       lastSyncAt: now().toISOString(),
     })
-    succeed()
+    succeed(gen)
   }
 
-  function doAdopt(remoteDoc, remoteSha) {
+  function doAdopt(remoteDoc, remoteSha, gen) {
+    if (!alive(gen)) return
     const res = adopt(remoteDoc)
     if (!res.ok) {
-      fail('local')
+      fail(gen, 'local')
       return
     }
     saveSyncState(storage, {
@@ -125,10 +135,11 @@ export function createSyncEngine({
       lastSyncedRevision: res.doc.revision,
       lastSyncAt: now().toISOString(),
     })
-    succeed()
+    succeed(gen)
   }
 
   async function cycle() {
+    const gen = epoch
     const config = loadSyncConfig(storage)
     if (!config) {
       setState({ status: 'off', conflict: null })
@@ -141,8 +152,9 @@ export function createSyncEngine({
     setState({ status: 'syncing', errorCode: null })
 
     const remote = await api.fetchRemoteFile(config)
+    if (!alive(gen)) return
     if (!remote.ok) {
-      fail(remote.error)
+      fail(gen, remote.error)
       return
     }
 
@@ -162,21 +174,21 @@ export function createSyncEngine({
     })
 
     if (action === 'noop') {
-      succeed()
+      succeed(gen)
       return
     }
     if (action === 'push') {
-      await doPush(config, remote.exists ? remote.sha : null)
+      await doPush(config, remote.exists ? remote.sha : null, gen)
       return
     }
 
     const parsed = parseImport(remote.text)
     if (!parsed.ok) {
-      fail(parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
+      fail(gen, parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
       return
     }
     if (action === 'adopt') {
-      doAdopt(parsed.doc, remote.sha)
+      doAdopt(parsed.doc, remote.sha, gen)
       return
     }
     setState({
@@ -213,6 +225,15 @@ export function createSyncEngine({
     schedulePush: () => {
       if (!loadSyncConfig(storage)) return
       if (state.status === 'conflict') return // blocked until resolved
+      // Nothing new to push (e.g. the doc just changed because we adopted a
+      // remote version) → don't flip to 'pending' or run a pointless cycle.
+      const syncState = loadSyncState(storage)
+      if (
+        syncState.lastSyncedRevision != null &&
+        getDoc().revision === syncState.lastSyncedRevision
+      ) {
+        return
+      }
       setState({ status: 'pending', errorCode: null })
       clearTimeout(pushTimer)
       pushTimer = setTimeout(() => run(cycle), PUSH_DEBOUNCE_MS)
@@ -221,23 +242,30 @@ export function createSyncEngine({
     /** Validate + store the config, then run the first sync. */
     configure: (config) => {
       if (!isValidRepo(config.repo)) return false
+      const prev = loadSyncConfig(storage)
       saveSyncConfig(storage, {
         repo: config.repo,
         token: config.token,
         path: config.path || 'radar.json',
       })
-      // Fresh pairing: forget any previous device state.
-      saveSyncState(storage, {
-        lastSyncedSha: null,
-        lastSyncedRevision: null,
-        lastSyncAt: null,
-      })
+      // Only forget device state on a NEW pairing. Re-entering the same repo
+      // (e.g. renewing an expired token) keeps the sync anchor so it doesn't
+      // trigger a spurious conflict against an unchanged remote.
+      if (!prev || prev.repo !== config.repo || (config.path || 'radar.json') !== (prev.path || 'radar.json')) {
+        saveSyncState(storage, {
+          lastSyncedSha: null,
+          lastSyncedRevision: null,
+          lastSyncAt: null,
+        })
+      }
+      epoch++ // cancel any in-flight cycle from a previous config
       run(cycle)
       return true
     },
 
     /** Stop syncing; local data stays untouched. */
     disable: () => {
+      epoch++ // cancel any in-flight cycle so it can't resurrect state
       clearTimeout(pushTimer)
       clearSync(storage)
       setState({ status: 'off', errorCode: null, conflict: null, lastSyncAt: null })
@@ -246,41 +274,45 @@ export function createSyncEngine({
     /** Conflict resolution: force-push this device's data. */
     resolveKeepLocal: () =>
       run(async () => {
+        const gen = epoch
         if (!state.conflict) return
         const config = loadSyncConfig(storage)
         if (!config) return
         setState({ status: 'syncing', conflict: null })
         const remote = await api.fetchRemoteFile(config) // fresh sha for CAS
+        if (!alive(gen)) return
         if (!remote.ok) {
-          fail(remote.error)
+          fail(gen, remote.error)
           return
         }
-        await doPush(config, remote.exists ? remote.sha : null)
+        await doPush(config, remote.exists ? remote.sha : null, gen)
       }),
 
     /** Conflict resolution: adopt the remote version (snapshot first). */
     resolveTakeRemote: () =>
       run(async () => {
+        const gen = epoch
         if (!state.conflict) return
         const config = loadSyncConfig(storage)
         if (!config) return
         setState({ status: 'syncing', conflict: null })
         const remote = await api.fetchRemoteFile(config) // may have moved again
+        if (!alive(gen)) return
         if (!remote.ok) {
-          fail(remote.error)
+          fail(gen, remote.error)
           return
         }
         if (!remote.exists) {
           // Nothing remote anymore — push local instead.
-          await doPush(config, null)
+          await doPush(config, null, gen)
           return
         }
         const parsed = parseImport(remote.text)
         if (!parsed.ok) {
-          fail(parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
+          fail(gen, parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
           return
         }
-        doAdopt(parsed.doc, remote.sha)
+        doAdopt(parsed.doc, remote.sha, gen)
       }),
   }
 }

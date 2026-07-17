@@ -35,6 +35,9 @@ export default function App() {
   docRef.current = doc
   const saveErrorRef = useRef(saveError)
   saveErrorRef.current = saveError
+  // showToast is defined below; the sync engine (created once here) reaches it
+  // through this ref so its closure never goes stale.
+  const showToastRef = useRef(() => {})
 
   // ----- opt-in GitHub sync (ARCHITECTURE.md §10bis) -----
   const syncRef = useRef(null)
@@ -44,10 +47,37 @@ export default function App() {
       getDoc: () => docRef.current,
       // Adopting a remote version = an import: snapshot first, revision guard.
       adopt: (remoteDoc) => {
+        const prev = docRef.current
+        const hadData =
+          prev.companies.length > 0 ||
+          prev.contacts.length > 0 ||
+          prev.settings.missionEndDate != null
         const r = store.applyImport(remoteDoc)
         if (r.ok) {
           setDoc(r.doc)
           setSaveError(null)
+          // Make the "backup taken before replacement" promise reachable:
+          // any adoption that overwrote real local data offers a one-tap undo.
+          if (hadData && r.snapshotKey) {
+            showToastRef.current({
+              message: 'Données mises à jour depuis l’autre appareil',
+              action: {
+                label: 'Annuler',
+                onClick: () => {
+                  const u = store.undoImport(r.snapshotKey)
+                  if (u.ok) {
+                    setDoc(u.doc)
+                    showToastRef.current({ message: 'Version précédente restaurée.' })
+                  } else {
+                    showToastRef.current({
+                      message: 'Impossible de restaurer.',
+                      kind: 'error',
+                    })
+                  }
+                },
+              },
+            })
+          }
         } else if (r.error === 'conflict') {
           setSaveError('conflict')
         }
@@ -72,6 +102,7 @@ export default function App() {
   }, [])
 
   const showToast = useCallback((t) => setToast({ ...t, key: Date.now() }), [])
+  showToastRef.current = showToast
   const dismissToast = useCallback(() => setToast(null), [])
 
   // ----- mutations: write-through, every failure surfaced -----
@@ -140,8 +171,11 @@ export default function App() {
   }, [sync])
 
   useEffect(() => {
-    sync.schedulePush()
-  }, [doc, sync])
+    // Don't push while local persistence is unhealthy (a conflict or a
+    // failed write means the in-memory doc may be stale or unsaved — pushing
+    // it would launder that problem to the other device).
+    if (!saveError) sync.schedulePush()
+  }, [doc, saveError, sync])
 
   const actions = useMemo(() => {
     const updateContact = (id, patch) =>
