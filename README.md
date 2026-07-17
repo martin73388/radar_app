@@ -34,6 +34,38 @@ Tes données restent uniquement sur ton téléphone. Pense à faire un export
 de temps en temps (⚙️ sur l'écran Tableau → **Télécharger**) — c'est ta
 copie de secours.
 
+## 🔄 Synchroniser téléphone ↔ iPad (optionnel)
+
+Radar peut partager tes données entre appareils via un **dépôt GitHub privé
+que tu possèdes**. Sans cette configuration, tout reste 100 % local.
+À savoir : tes données de prospection seront alors stockées dans ce dépôt
+privé (visibles par GitHub et par quiconque aurait accès au dépôt ou au
+jeton).
+
+**Une seule fois — créer le dépôt et le jeton :**
+
+1. Sur github.com : **New repository** → nom `radar-data` → visibilité
+   **Private** → Create. N'y mets rien d'autre.
+2. Crée un jeton *fine-grained* : **Settings → Developer settings →
+   Personal access tokens → Fine-grained tokens → Generate new token** :
+   - *Repository access* : **Only select repositories** → `radar-data` ;
+   - *Permissions → Repository → Contents* : **Read and write** (rien
+     d'autre) ;
+   - une date d'expiration (à renouveler ensuite) → **Generate** →
+     copie le jeton `github_pat_…`.
+
+**Sur chaque appareil (téléphone puis iPad) :**
+
+3. Dans Radar : ⚙️ (écran Tableau) → section **Synchronisation** → saisis
+   `tonpseudo/radar-data` + colle le jeton → **Activer la synchro**.
+   Le jeton reste sur l'appareil, il n'est jamais publié nulle part.
+
+Ensuite c'est automatique : envoi après chaque modification, récupération à
+l'ouverture de l'app. La pastille à côté de ⚙️ indique l'état (vert = à
+jour, orange = en cours, rouge = conflit ou erreur — ouvre ⚙️ pour le
+détail). En cas de modification des deux côtés en même temps, Radar te fait
+choisir la version à garder — jamais de fusion silencieuse.
+
 > iPhone (au cas où) : installe **avant** de saisir des données
 > (Safari → Partager → « Sur l'écran d'accueil »), car l'onglet Safari et
 > l'app installée ne partagent pas leur stockage ; sinon passe par

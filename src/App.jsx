@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createStore, makeId, exportJSON, DATA_KEY } from './storage/index.js'
+import { createSyncEngine } from './sync/engine.js'
 import { todayLocal } from './lib/dates.js'
 import { downloadText } from './lib/download.js'
 import { copyText } from './lib/clipboard.js'
@@ -34,6 +35,29 @@ export default function App() {
   docRef.current = doc
   const saveErrorRef = useRef(saveError)
   saveErrorRef.current = saveError
+
+  // ----- opt-in GitHub sync (ARCHITECTURE.md §10bis) -----
+  const syncRef = useRef(null)
+  if (!syncRef.current) {
+    syncRef.current = createSyncEngine({
+      storage: window.localStorage,
+      getDoc: () => docRef.current,
+      // Adopting a remote version = an import: snapshot first, revision guard.
+      adopt: (remoteDoc) => {
+        const r = store.applyImport(remoteDoc)
+        if (r.ok) {
+          setDoc(r.doc)
+          setSaveError(null)
+        } else if (r.error === 'conflict') {
+          setSaveError('conflict')
+        }
+        return r
+      },
+      onState: (s) => setSyncState(s),
+    })
+  }
+  const sync = syncRef.current
+  const [syncState, setSyncState] = useState(() => sync.getState())
 
   // ----- today, refreshed across midnight and app resume -----
   const [today, setToday] = useState(() => todayLocal())
@@ -95,6 +119,29 @@ export default function App() {
     window.addEventListener('storage', onStorage)
     return () => window.removeEventListener('storage', onStorage)
   }, [store])
+
+  // ----- sync triggers: launch, app resume, back online, local mutations -----
+  useEffect(() => {
+    if (sync.isConfigured()) sync.syncNow()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && sync.isConfigured()) {
+        sync.syncNow()
+      }
+    }
+    const onOnline = () => {
+      if (sync.isConfigured()) sync.syncNow()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', onOnline)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', onOnline)
+    }
+  }, [sync])
+
+  useEffect(() => {
+    sync.schedulePush()
+  }, [doc, sync])
 
   const actions = useMemo(() => {
     const updateContact = (id, patch) =>
@@ -188,8 +235,8 @@ export default function App() {
   const consumeCmd = useCallback(() => setCmd(null), [])
 
   const radarValue = useMemo(
-    () => ({ doc, actions, readOnly, today, showToast }),
-    [doc, actions, readOnly, today, showToast],
+    () => ({ doc, actions, readOnly, today, showToast, syncState, syncEngine: sync }),
+    [doc, actions, readOnly, today, showToast, syncState, sync],
   )
 
   const status = store.initial.status
@@ -310,6 +357,27 @@ export default function App() {
                   ⚠️ Impossible d’enregistrer (stockage plein ?). Tes dernières
                   modifications ne sont <strong>pas sauvegardées</strong> —
                   exporte-les maintenant.
+                </Banner>
+              )}
+              {syncState.status === 'conflict' && (
+                <Banner
+                  tone="warn"
+                  actions={[
+                    {
+                      label: 'Garder cet appareil',
+                      onClick: () => sync.resolveKeepLocal(),
+                    },
+                    {
+                      label: 'Prendre l’autre version',
+                      onClick: () => sync.resolveTakeRemote(),
+                    },
+                    { label: 'Exporter ma copie', onClick: exportInMemory },
+                  ]}
+                >
+                  <strong>Conflit de synchronisation</strong> : les données ont
+                  changé ici ET sur l’autre appareil. Choisis la version à
+                  garder — l’autre sera remplacée (une copie de secours locale
+                  est prise avant tout remplacement).
                 </Banner>
               )}
               {saveError === 'conflict' && (

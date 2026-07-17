@@ -12,6 +12,9 @@ export const DATA_KEY = 'radar:data'
 const CORRUPT_PREFIX = 'radar:data:corrupt:'
 const PRE_IMPORT_PREFIX = 'radar:data:pre-import:'
 const MIGRATION_BACKUP_PREFIX = 'radar:data:backup:v'
+// Device-local sync settings — NEVER part of the synced/exported document.
+const SYNC_CONFIG_KEY = 'radar:sync:config' // { repo: 'owner/name', token, path }
+const SYNC_STATE_KEY = 'radar:sync:state' // { lastSyncedSha, lastSyncedRevision }
 
 // MIGRATIONS[n] migrates a vn document to v(n+1). v1 is the baseline.
 export const MIGRATIONS = {}
@@ -397,5 +400,65 @@ export function createStore(storage) {
     get baseRevision() {
       return base
     },
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Device-local sync settings (ARCHITECTURE.md §10bis). The token lives at the
+// same trust level as the data itself; it is never synced nor exported.
+
+function loadJsonKey(storage, key) {
+  try {
+    const raw = storage.getItem(key)
+    if (raw == null) return null
+    const parsed = JSON.parse(raw)
+    return isPlainObject(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+function saveJsonKey(storage, key, value) {
+  try {
+    storage.setItem(key, JSON.stringify(value))
+    return true
+  } catch {
+    return false
+  }
+}
+
+export function loadSyncConfig(storage) {
+  const cfg = loadJsonKey(storage, SYNC_CONFIG_KEY)
+  if (!cfg || typeof cfg.repo !== 'string' || typeof cfg.token !== 'string') {
+    return null
+  }
+  return { repo: cfg.repo, token: cfg.token, path: cfg.path || 'radar.json' }
+}
+
+export function saveSyncConfig(storage, config) {
+  return saveJsonKey(storage, SYNC_CONFIG_KEY, config)
+}
+
+export function loadSyncState(storage) {
+  const s = loadJsonKey(storage, SYNC_STATE_KEY)
+  return {
+    lastSyncedSha: typeof s?.lastSyncedSha === 'string' ? s.lastSyncedSha : null,
+    lastSyncedRevision: Number.isInteger(s?.lastSyncedRevision)
+      ? s.lastSyncedRevision
+      : null,
+    lastSyncAt: typeof s?.lastSyncAt === 'string' ? s.lastSyncAt : null,
+  }
+}
+
+export function saveSyncState(storage, state) {
+  return saveJsonKey(storage, SYNC_STATE_KEY, state)
+}
+
+export function clearSync(storage) {
+  try {
+    storage.removeItem(SYNC_CONFIG_KEY)
+    storage.removeItem(SYNC_STATE_KEY)
+  } catch {
+    /* nothing to clear */
   }
 }

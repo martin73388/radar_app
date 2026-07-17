@@ -6,6 +6,8 @@ import { exportJSON, parseImport } from '../storage/index.js'
 import { downloadText } from '../lib/download.js'
 import { copyText } from '../lib/clipboard.js'
 import { formatFR, todayLocal } from '../lib/dates.js'
+import { isValidRepo } from '../sync/engine.js'
+import { syncStatusLabel } from '../sync/labels.js'
 
 const UNDO_ERRORS = {
   conflict:
@@ -27,13 +29,41 @@ const IMPORT_ERRORS = {
     'Sauvegarde invalide (identifiants dupliqués) — tes données n’ont pas été modifiées.',
 }
 
-/** Sauvegarde: the §5 export/import APIs, reachable from the TABLEAU header. */
+const syncInputCls =
+  'h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none'
+
+/** Sauvegarde: the §5 export/import APIs + §10bis sync, from the TABLEAU ⚙️. */
 export default function BackupSheet({ open, onClose }) {
-  const { doc, actions, readOnly, showToast } = useRadar()
+  const { doc, actions, readOnly, showToast, syncState, syncEngine } = useRadar()
   const fileRef = useRef(null)
   const [pasted, setPasted] = useState('')
   const [importError, setImportError] = useState(null)
   const [pending, setPending] = useState(null) // parsed import awaiting confirm
+  const [repoInput, setRepoInput] = useState(() => syncEngine.getConfig()?.repo ?? '')
+  const [tokenInput, setTokenInput] = useState('')
+  const [syncError, setSyncError] = useState(null)
+
+  function activateSync() {
+    const repo = repoInput.trim()
+    const token = tokenInput.trim()
+    if (!isValidRepo(repo)) {
+      setSyncError('Format attendu : utilisateur/dépôt (ex. martin73388/radar-data)')
+      return
+    }
+    if (!token) {
+      setSyncError('Colle ton jeton d’accès GitHub (fine-grained PAT).')
+      return
+    }
+    setSyncError(null)
+    setTokenInput('')
+    syncEngine.configure({ repo, token })
+    showToast({ message: 'Synchro activée — première synchronisation…' })
+  }
+
+  function disableSync() {
+    syncEngine.disable()
+    showToast({ message: 'Synchro désactivée — tes données locales sont conservées.' })
+  }
 
   function doExportDownload() {
     downloadText(`radar-backup-${todayLocal()}.json`, exportJSON(doc))
@@ -179,6 +209,81 @@ export default function BackupSheet({ open, onClose }) {
               {importError && (
                 <p className="mt-2 text-sm font-medium text-rose-300">{importError}</p>
               )}
+            </>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Synchronisation (téléphone ↔ iPad)
+          </h3>
+          {syncEngine.isConfigured() ? (
+            <>
+              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                Dépôt privé :{' '}
+                <span className="font-mono text-xs text-slate-300">
+                  {syncEngine.getConfig()?.repo}
+                </span>
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-300">
+                {syncStatusLabel(syncState)}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => syncEngine.syncNow()}
+                  className="h-12 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                >
+                  Synchroniser maintenant
+                </button>
+                <button
+                  type="button"
+                  onClick={disableSync}
+                  className="h-12 rounded-xl bg-slate-800 text-sm font-medium text-slate-300 active:bg-slate-700"
+                >
+                  Désactiver
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                Partage tes données entre appareils via un{' '}
+                <strong>dépôt GitHub privé</strong> que tu possèdes. Le jeton
+                reste sur cet appareil — jamais dans le code de l’app. (Guide de
+                création du dépôt et du jeton dans le README.)
+              </p>
+              <div className="mt-3 space-y-2">
+                <input
+                  aria-label="Dépôt privé GitHub"
+                  className={syncInputCls}
+                  value={repoInput}
+                  onChange={(e) => setRepoInput(e.target.value)}
+                  placeholder="utilisateur/dépôt (ex. martin73388/radar-data)"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+                <input
+                  aria-label="Jeton d’accès GitHub"
+                  type="password"
+                  className={syncInputCls}
+                  value={tokenInput}
+                  onChange={(e) => setTokenInput(e.target.value)}
+                  placeholder="github_pat_…"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                />
+                <button
+                  type="button"
+                  onClick={activateSync}
+                  className="h-12 w-full rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                >
+                  Activer la synchro
+                </button>
+                {syncError && (
+                  <p className="text-sm font-medium text-rose-300">{syncError}</p>
+                )}
+              </div>
             </>
           )}
         </section>

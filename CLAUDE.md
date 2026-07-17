@@ -98,6 +98,12 @@ Three tabs:
   icon badge via `setAppBadge` is well supported there. (Phase 1)
 - **Persistence: localStorage** behind a single storage module — rationale in
   ARCHITECTURE.md §5.
+- **Multi-device sync via private GitHub repo (opt-in)** — requested by
+  Martin 2026-07-17, relaxing the "no external service" rule *only when he
+  configures it*: data file in a private repo he owns, fine-grained PAT
+  pasted per device (never in the code/bundle), Contents API with sha CAS,
+  explicit conflict resolution. Design: ARCHITECTURE.md §10bis. Setup steps
+  he must do himself (private repo + PAT): README.
 
 ## Open questions
 

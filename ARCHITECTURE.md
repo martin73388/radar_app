@@ -352,7 +352,64 @@ contact (name, company, role, last contact, next follow-up, notes). Format:
 
 One at a time, each validated before the next.
 
-## 10. Phase 1 gate — CLOSED (all validated by Martin)
+## 10bis. Multi-device sync via a private GitHub repo (opt-in) — requested by Martin
+
+**Scope change validated by Martin (2026-07-17)**: the original "no external
+service receives data" rule is relaxed, *opt-in only*: when (and only when)
+Martin configures sync, the document is stored in a **private GitHub repo he
+owns** (e.g. `martin73388/radar-data`), separate from this public code repo.
+Without configuration the app stays 100 % local, exactly as before.
+
+Design constraints of a static GitHub Pages app:
+
+- **No secret can live in the app bundle** (the site and its JS are public).
+  Authentication is a **fine-grained Personal Access Token** that Martin
+  creates himself (scoped to the single data repo, permission
+  Contents Read/Write, with expiry), pasted **once per device** into the
+  Sauvegarde sheet and stored device-locally (`radar:sync:config` — same
+  trust level as the data itself, never synced, never in the code).
+- Transport: GitHub **Contents API** (`GET/PUT /repos/{owner}/{repo}/contents/{path}`,
+  CORS-enabled) on a single file `radar.json`. The pushed payload is the
+  §2 document **minus `revision`** (device-local counter — syncing it would
+  cause commit ping-pong between devices).
+
+### Sync engine (`src/sync/`)
+
+- Per-device state `radar:sync:state` = `{ lastSyncedSha, lastSyncedRevision }`.
+  - `localChanged` = local `revision` ≠ `lastSyncedRevision`
+    (first sync: = "has any data").
+  - `remoteMoved` = remote file sha ≠ `lastSyncedSha` (first sync: true).
+- Decision table (pure, unit-tested — `decideSync`):
+  | remote file | remoteMoved | localChanged | action |
+  |---|---|---|---|
+  | absent | — | — | push (creates the file) |
+  | present | no | no | noop |
+  | present | no | yes | push (CAS on sha) |
+  | present | yes | no | adopt remote |
+  | present | yes | yes | **conflict** — explicit choice |
+- **Adopt** runs the remote payload through `parseImport` (same validation,
+  migration, newer-version rejection as a manual import) and applies it via
+  `applyImport` (pre-adopt snapshot, revision guard). **Push** uses the sha
+  as compare-and-swap: a 409/422 means the remote moved → re-pull, never
+  blind-overwrite.
+- **Conflict is never resolved silently**: a banner offers « Garder cet
+  appareil » (force-push local) or « Prendre l'autre version » (adopt, with
+  snapshot). Until resolved the app keeps working locally.
+- Triggers: pull on launch, on `visibilitychange→visible`, on « Synchroniser
+  maintenant »; push debounced ~2.5 s after each mutation. Offline or API
+  failure → visible status, local-first behavior unchanged, retry on next
+  trigger. Remote written by a newer app version → sync pauses with
+  « ferme et rouvre l'app » (no downgrade, mirroring §5).
+- UI: « Synchronisation » section in the Sauvegarde sheet (configure with
+  `owner/repo` + token, status + last sync time, Synchroniser maintenant,
+  Désactiver — local data kept); a status dot next to ⚙️ on TABLEAU.
+
+Privacy note (documented to Martin): with sync ON, the prospect list lives
+in his private GitHub repo — visible to GitHub and to anyone holding the
+repo access or the token. Fine-grained single-repo token + private repo is
+the mitigation; sync stays opt-in per device.
+
+## 10ter. Phase 1 gate — CLOSED (all validated by Martin)
 
 1. **Status list** (§3) — the 8 proposed statuses validated as-is.
 2. Reschedule offsets computed **from today** (§4) — confirmed.
