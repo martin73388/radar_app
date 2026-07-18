@@ -3,7 +3,7 @@
 Personal prospection CRM (PWA) — companies, contacts, follow-ups. 100 %
 local data (localStorage), no backend, no accounts, no analytics. French UI.
 
-- **Live app**: https://martin73388.github.io/10_Jobseeker/ (deployed from
+- **Live app**: https://martin73388.github.io/radar_app/ (deployed from
   `main` by GitHub Actions)
 - Design contract: [ARCHITECTURE.md](ARCHITECTURE.md) · Project brief &
   decisions: [CLAUDE.md](CLAUDE.md)
@@ -24,7 +24,7 @@ npm run icons      # regenerate PWA icons from public/favicon.svg
 ## 📱 Installer Radar sur ton téléphone (Android)
 
 1. Ouvre **Chrome** et va sur
-   **https://martin73388.github.io/10_Jobseeker/**
+   **https://martin73388.github.io/radar_app/**
 2. Menu **⋮** (en haut à droite) → **« Ajouter à l'écran d'accueil »** /
    **« Installer l'application »** → confirme.
 3. L'icône **Radar** apparaît sur ton écran d'accueil : l'app s'ouvre en
@@ -44,11 +44,11 @@ jeton).
 
 **Une seule fois — créer le dépôt et le jeton :**
 
-1. Sur github.com : **New repository** → nom `radar-data` → visibilité
+1. Sur github.com : **New repository** → nom `radar_core` → visibilité
    **Private** → Create. N'y mets rien d'autre.
 2. Crée un jeton *fine-grained* : **Settings → Developer settings →
    Personal access tokens → Fine-grained tokens → Generate new token** :
-   - *Repository access* : **Only select repositories** → `radar-data` ;
+   - *Repository access* : **Only select repositories** → `radar_core` ;
    - *Permissions → Repository → Contents* : **Read and write** (rien
      d'autre) ;
    - une date d'expiration (à renouveler ensuite) → **Generate** →
@@ -57,7 +57,7 @@ jeton).
 **Sur chaque appareil (téléphone puis iPad) :**
 
 3. Dans Radar : ⚙️ (écran Tableau) → section **Synchronisation** → saisis
-   `tonpseudo/radar-data` + colle le jeton → **Activer la synchro**.
+   `tonpseudo/radar_core` + colle le jeton → **Activer la synchro**.
    Le jeton reste sur l'appareil, il n'est jamais publié nulle part.
 
 Ensuite c'est automatique : envoi après chaque modification, récupération à

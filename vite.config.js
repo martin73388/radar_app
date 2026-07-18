@@ -3,9 +3,9 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
-// Deployed on GitHub Pages under https://<user>.github.io/10_Jobseeker/
+// Deployed on GitHub Pages under https://<user>.github.io/radar_app/
 export default defineConfig({
-  base: '/10_Jobseeker/',
+  base: '/radar_app/',
   plugins: [
     react(),
     tailwindcss(),
