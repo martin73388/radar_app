@@ -1,9 +1,9 @@
 # Radar — personal prospection CRM (PWA)
 
-Personal CRM for the owner (French robotics engineer going freelance; current
-mission ends December 2026) to track target companies and contacts for his
-freelance/CDI hunt. Refactor of a single-file React artifact (claude.ai +
-window.storage) into a standalone mobile-first PWA he fully owns.
+Personal CRM for the app's owner — a French engineer running a personal
+freelance/CDI job hunt — to track target companies and contacts. Refactor of a
+single-file React artifact (claude.ai + window.storage) into a standalone
+mobile-first PWA fully self-owned.
 
 ## Current phase
 
