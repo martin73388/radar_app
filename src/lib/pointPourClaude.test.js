@@ -36,6 +36,7 @@ function sampleDoc() {
       companyId: 'cmp_1',
       companyName: '',
       role: 'CTO',
+      linkedin: 'https://www.linkedin.com/in/janedoe',
       notes: 'très réactive',
       lastContact: '2026-07-10',
       nextFollowUp: '2026-07-17',
@@ -93,6 +94,7 @@ describe('buildPoint', () => {
     expect(text).toContain(
       'Dernier contact : 10/07/2026 · Prochaine relance : 17/07/2026 (Dans 2 j)',
     )
+    expect(text).toContain('LinkedIn : https://www.linkedin.com/in/janedoe')
     // Free-text company + never contacted + overdue follow-up
     expect(text).toContain('• Marc Dupont — Recruteur indé')
     expect(text).toContain(

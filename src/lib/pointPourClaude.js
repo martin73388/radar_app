@@ -54,6 +54,7 @@ function contactLines(p, companiesById, today) {
     next = `${formatFR(p.nextFollowUp)} (${dueLabel(days)})`
   }
   lines.push(`  Dernier contact : ${last} · Prochaine relance : ${next}`)
+  if (p.linkedin) lines.push(`  LinkedIn : ${p.linkedin}`)
   if (p.notes) lines.push(`  Notes : ${p.notes}`)
   return lines
 }

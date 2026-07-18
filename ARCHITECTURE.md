@@ -343,14 +343,19 @@ contact (name, company, role, last contact, next follow-up, notes). Format:
 
 ## 9. Post-parity improvements (Phase 0 — all approved, in this order)
 
-1. **Champ LinkedIn** on contacts (smallest, pure parity-style addition).
-2. **Mode sombre** (auto via `prefers-color-scheme`).
-3. **Badge relances du jour** — count on the Contacts tab (always) + app icon
-   badge via `navigator.setAppBadge` (well supported on Android/Chromium —
-   Martin's platform).
-4. **Statistiques d'activité** — relances/week, companies per status.
+1. **Champ LinkedIn** on contacts — DONE. Optional `linkedin` field
+   (schema-compatible, no migration), tappable https-normalized link on the
+   card, included in the point-pour-Claude export.
+2. **Badge relances du jour** — DONE. `dueSoonCount` (≤2 days, overdue incl.)
+   shown as a red count on the Contacts tab + app-icon badge via
+   `navigator.setAppBadge`/`clearAppBadge` (Android/Chromium).
+3. **Statistiques d'activité** — DONE. Append-only `activityLog` of
+   "relance faite" events (schema-compatible); StatsSheet from TABLEAU shows
+   relances/week (8-week bars), 7-day/total/won tiles, and companies-by-status.
+4. **Mode sombre** (auto via `prefers-color-scheme`) — PENDING, dedicated
+   pass (full light/dark re-theme of every component).
 
-One at a time, each validated before the next.
+Each validated before the next.
 
 ## 10bis. Multi-device sync via a private GitHub repo (opt-in) — requested by Martin
 

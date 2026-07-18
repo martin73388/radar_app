@@ -18,6 +18,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
   const [companyId, setCompanyId] = useState(contact?.companyId ?? '')
   const [companyName, setCompanyName] = useState(contact?.companyName ?? '')
   const [role, setRole] = useState(contact?.role ?? '')
+  const [linkedin, setLinkedin] = useState(contact?.linkedin ?? '')
   const [notes, setNotes] = useState(contact?.notes ?? '')
   const [lastContact, setLastContact] = useState(contact?.lastContact ?? null)
   const [nextFollowUp, setNextFollowUp] = useState(contact?.nextFollowUp ?? null)
@@ -33,6 +34,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
     companyId !== (contact?.companyId ?? '') ||
     companyName !== (contact?.companyName ?? '') ||
     role !== (contact?.role ?? '') ||
+    linkedin !== (contact?.linkedin ?? '') ||
     notes !== (contact?.notes ?? '') ||
     lastContact !== (contact?.lastContact ?? null) ||
     nextFollowUp !== (contact?.nextFollowUp ?? null)
@@ -48,6 +50,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       companyId: companyId || null,
       companyName: companyId ? '' : companyName.trim(),
       role,
+      linkedin: linkedin.trim(),
       notes,
       lastContact,
       nextFollowUp,
@@ -109,6 +112,24 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
           value={role}
           onChange={(e) => setRole(e.target.value)}
           placeholder="CTO, recruteuse, lead robotique…"
+        />
+      </div>
+
+      <div>
+        <label htmlFor="cnt-linkedin" className="mb-1 block text-sm font-medium text-slate-300">
+          LinkedIn
+        </label>
+        <input
+          id="cnt-linkedin"
+          type="url"
+          inputMode="url"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          className={inputCls}
+          value={linkedin}
+          onChange={(e) => setLinkedin(e.target.value)}
+          placeholder="https://www.linkedin.com/in/…"
         />
       </div>
 

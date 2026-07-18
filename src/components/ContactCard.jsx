@@ -1,12 +1,28 @@
 import { daysUntil, dueLabel, formatFR } from '../lib/dates.js'
 import { useRadar } from '../state/radar.js'
-import { IconCheck } from '../ui/icons.jsx'
+import { IconCheck, IconLinkedIn } from '../ui/icons.jsx'
 
 export function followUpBadge(days) {
   if (days < 0) return 'bg-rose-500/15 text-rose-300 border-rose-500/30'
   if (days === 0) return 'bg-amber-500/15 text-amber-300 border-amber-500/30'
   if (days <= 2) return 'bg-teal-500/15 text-teal-300 border-teal-500/30'
   return 'bg-slate-500/15 text-slate-300 border-slate-500/30'
+}
+
+// Accept a bare "linkedin.com/in/x" or a full URL; always return a safe https
+// link, or null for anything that isn't a plausible web link.
+export function linkedinHref(raw) {
+  if (typeof raw !== 'string') return null
+  const v = raw.trim()
+  if (!v) return null
+  const url = /^https?:\/\//i.test(v) ? v : `https://${v}`
+  try {
+    const u = new URL(url)
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
+    return u.href
+  } catch {
+    return null
+  }
 }
 
 export default function ContactCard({ contact, onClick, onDone }) {
@@ -17,6 +33,7 @@ export default function ContactCard({ contact, onClick, onDone }) {
   const companyLabel = company?.name || contact.companyName
   const sub = [companyLabel, contact.role].filter(Boolean).join(' · ')
   const days = contact.nextFollowUp ? daysUntil(contact.nextFollowUp, today) : null
+  const liHref = linkedinHref(contact.linkedin)
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
@@ -43,15 +60,29 @@ export default function ContactCard({ contact, onClick, onDone }) {
           {contact.nextFollowUp && ` · Relance : ${formatFR(contact.nextFollowUp)}`}
         </p>
       </button>
-      {!readOnly && (
-        <button
-          type="button"
-          onClick={onDone}
-          className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-sm font-medium text-teal-300 active:bg-teal-500/20"
-        >
-          <IconCheck className="h-4 w-4" /> Relance faite
-        </button>
-      )}
+      <div className="mt-3 flex items-center gap-2">
+        {liHref && (
+          <a
+            href={liHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Ouvrir le profil LinkedIn de ${contact.name}`}
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-sky-500/30 bg-sky-500/10 text-sky-300 active:bg-sky-500/20"
+          >
+            <IconLinkedIn className="h-5 w-5" />
+          </a>
+        )}
+        {!readOnly && (
+          <button
+            type="button"
+            onClick={onDone}
+            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl border border-teal-500/30 bg-teal-500/10 text-sm font-medium text-teal-300 active:bg-teal-500/20"
+          >
+            <IconCheck className="h-4 w-4" /> Relance faite
+          </button>
+        )}
+      </div>
     </div>
   )
 }

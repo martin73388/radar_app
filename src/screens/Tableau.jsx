@@ -19,7 +19,8 @@ import ReschedulePrompt from '../components/ReschedulePrompt.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 import { followUpBadge } from '../components/ContactCard.jsx'
 import { syncDotClass } from '../sync/labels.js'
-import { IconGear, IconCopy, IconCheck, IconShare, IconCalendar } from '../ui/icons.jsx'
+import StatsSheet from '../components/StatsSheet.jsx'
+import { IconGear, IconCopy, IconCheck, IconShare, IconCalendar, IconChart } from '../ui/icons.jsx'
 
 function MissionCard({ onEdit }) {
   const { doc, today } = useRadar()
@@ -169,6 +170,7 @@ export default function Tableau({ navigate }) {
   const [missionSheet, setMissionSheet] = useState(false)
   const [missionDraft, setMissionDraft] = useState(null)
   const [backupOpen, setBackupOpen] = useState(false)
+  const [statsOpen, setStatsOpen] = useState(false)
   const [rescheduling, setRescheduling] = useState(null)
   const [copyFallback, setCopyFallback] = useState(null)
 
@@ -206,20 +208,30 @@ export default function Tableau({ navigate }) {
             {formatFR(today)}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setBackupOpen(true)}
-          aria-label="Sauvegarde"
-          className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-400 active:text-slate-200"
-        >
-          <IconGear />
-          {syncDotClass(syncState.status) && (
-            <span
-              aria-hidden="true"
-              className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-slate-950 ${syncDotClass(syncState.status)}`}
-            />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setStatsOpen(true)}
+            aria-label="Statistiques"
+            className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-400 active:text-slate-200"
+          >
+            <IconChart />
+          </button>
+          <button
+            type="button"
+            onClick={() => setBackupOpen(true)}
+            aria-label="Sauvegarde"
+            className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-400 active:text-slate-200"
+          >
+            <IconGear />
+            {syncDotClass(syncState.status) && (
+              <span
+                aria-hidden="true"
+                className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-slate-950 ${syncDotClass(syncState.status)}`}
+              />
+            )}
+          </button>
+        </div>
       </header>
 
       {exportOverdue && (
@@ -290,6 +302,8 @@ export default function Tableau({ navigate }) {
       </BottomSheet>
 
       <BackupSheet open={backupOpen} onClose={() => setBackupOpen(false)} />
+
+      <StatsSheet open={statsOpen} onClose={() => setStatsOpen(false)} />
 
       <ReschedulePrompt
         contact={rescheduling}

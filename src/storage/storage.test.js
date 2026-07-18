@@ -49,6 +49,7 @@ function docWithData() {
     companyId: doc.companies[0].id,
     companyName: '',
     role: 'CTO',
+    linkedin: '',
     notes: 'très réactive',
     lastContact: '2026-07-10',
     nextFollowUp: '2026-07-17',

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createStore, makeId, exportJSON, DATA_KEY } from './storage/index.js'
 import { createSyncEngine } from './sync/engine.js'
-import { todayLocal } from './lib/dates.js'
+import { todayLocal, dueSoonCount } from './lib/dates.js'
 import { downloadText } from './lib/download.js'
 import { copyText } from './lib/clipboard.js'
 import { RadarContext, UiContext } from './state/radar.js'
@@ -235,7 +235,21 @@ export default function App() {
       updateContact,
       deleteContact: (id) =>
         mutate((d) => ({ ...d, contacts: d.contacts.filter((p) => p.id !== id) })),
-      markFollowUpDone: (id) => updateContact(id, { lastContact: todayLocal() }),
+      // Sets lastContact to today AND appends an activity entry (for stats).
+      markFollowUpDone: (id) =>
+        mutate((d) => {
+          const day = todayLocal()
+          return {
+            ...d,
+            contacts: d.contacts.map((p) =>
+              p.id === id ? { ...p, lastContact: day, updatedAt: nowISO() } : p,
+            ),
+            activityLog: [
+              ...(d.activityLog ?? []),
+              { type: 'relance', date: day, contactId: id },
+            ],
+          }
+        }),
       reschedule: (id, date) => updateContact(id, { nextFollowUp: date }),
       importDoc: (importedDoc) => {
         const r = store.applyImport(importedDoc)
@@ -267,6 +281,17 @@ export default function App() {
     setCmd(nextCmd)
   }, [])
   const consumeCmd = useCallback(() => setCmd(null), [])
+
+  // ----- due-today badge: tab count + app-icon badge (Android/Chromium) -----
+  const dueCount = useMemo(() => dueSoonCount(doc.contacts, today), [doc.contacts, today])
+  useEffect(() => {
+    if (typeof navigator === 'undefined') return
+    if (dueCount > 0 && navigator.setAppBadge) {
+      navigator.setAppBadge(dueCount).catch(() => {})
+    } else if (navigator.clearAppBadge) {
+      navigator.clearAppBadge().catch(() => {})
+    }
+  }, [dueCount])
 
   const radarValue = useMemo(
     () => ({ doc, actions, readOnly, today, showToast, syncState, syncEngine: sync }),
@@ -449,7 +474,7 @@ export default function App() {
             </div>
           </main>
 
-          <TabBar tab={tab} onChange={(t) => navigate(t)} />
+          <TabBar tab={tab} onChange={(t) => navigate(t)} dueCount={dueCount} />
           <Toast toast={toast} onDismiss={dismissToast} />
           <UpdateToast />
         </div>

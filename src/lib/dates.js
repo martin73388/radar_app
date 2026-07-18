@@ -63,6 +63,15 @@ export function isDueSoon(days) {
   return days <= DUE_SOON_DAYS
 }
 
+/** Count of contacts whose follow-up is due within ≤2 days (overdue included). */
+export function dueSoonCount(contacts, today) {
+  let n = 0
+  for (const p of contacts) {
+    if (p.nextFollowUp && isDueSoon(daysUntil(p.nextFollowUp, today))) n++
+  }
+  return n
+}
+
 /** Human label for a follow-up N days away. */
 export function dueLabel(days) {
   if (days < 0) return `En retard de ${-days} j`

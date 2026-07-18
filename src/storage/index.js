@@ -34,6 +34,8 @@ export function emptyDoc() {
     settings: { missionEndDate: null, lastExportAt: null },
     companies: [],
     contacts: [],
+    // Append-only log of "relance faite" events, for activity stats.
+    activityLog: [],
   }
 }
 
@@ -104,6 +106,7 @@ function normalizeContact(p) {
     companyId: typeof p.companyId === 'string' && p.companyId ? p.companyId : null,
     companyName: typeof p.companyName === 'string' ? p.companyName : '',
     role: typeof p.role === 'string' ? p.role : '',
+    linkedin: typeof p.linkedin === 'string' ? p.linkedin : '',
     notes: typeof p.notes === 'string' ? p.notes : '',
     lastContact: p.lastContact ?? null,
     nextFollowUp: p.nextFollowUp ?? null,
@@ -125,6 +128,7 @@ export function normalizeDoc(doc) {
     },
     companies: doc.companies.map(normalizeCompany),
     contacts: doc.contacts.map(normalizeContact),
+    activityLog: Array.isArray(doc.activityLog) ? doc.activityLog : [],
   }
 }
 
