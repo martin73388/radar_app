@@ -62,6 +62,19 @@ export default function App() {
   if (!enginesRef.current) {
     // Adopting a remote version = an import: snapshot first, revision guard.
     // Shared by both remotes; the store's revision guard keeps them consistent.
+    //
+    // NOTE on `getDoc: () => docRef.current` with two engines. When both
+    // remotes are configured, their cycles run back-to-back inside the shared
+    // lock; `docRef` only refreshes on the next React render, so if the first
+    // cycle adopts, the second still reads the pre-adopt doc. This is
+    // DELIBERATE, not a bug to "fix": an engine only reaches `adopt` when
+    // localChanged is false (unsynced local edits force `conflict` instead, so
+    // user work is never silently dropped — no data loss). Feeding the second
+    // engine the freshly-adopted revision would instead make it see
+    // localChanged=true and raise a FALSE conflict on every steady-state sync
+    // where another device pushed the same content to both remotes. The worst
+    // case here is a redundant second adopt of identical content, corrected on
+    // the next cycle by the revision-based sync state — transient, never lossy.
     const adopt = (remoteDoc) => {
       const prev = docRef.current
       const hadData =
@@ -121,7 +134,8 @@ export default function App() {
         secret: c.secret.trim(),
         path: c.path || 'radar.json',
       }),
-      sameTarget: (a, b) => a.url === b.url,
+      sameTarget: (a, b) =>
+        a.url === b.url && (a.path || 'radar.json') === (b.path || 'radar.json'),
     })
 
     enginesRef.current = { github, drive }
@@ -197,6 +211,11 @@ export default function App() {
   // two cycles, so GitHub reconciles then Drive reconciles (each pulls/adopts
   // or pushes independently); local stays the single source of truth.
   const syncAll = useCallback(() => {
+    // Don't reconcile while local persistence is unhealthy: a cycle can pull &
+    // adopt, and adopting over an unsaved/conflicted in-memory doc is exactly
+    // what we must avoid (same guard as the storage-event handler and the
+    // debounced push). The user resolves the banner first, then sync resumes.
+    if (saveErrorRef.current) return
     if (sync.isConfigured()) sync.syncNow()
     if (driveSync.isConfigured()) driveSync.syncNow()
   }, [sync, driveSync])
