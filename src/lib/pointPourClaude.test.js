@@ -17,6 +17,9 @@ function sampleDoc() {
       type: 'freelance',
       status: 'in_discussion',
       priority: true,
+      links: [
+        { id: 'lnk_1', url: 'https://ex.com/job', label: 'Lead robotique', postedAt: '2026-07-12' },
+      ],
     },
     {
       id: 'cmp_2',
@@ -83,6 +86,7 @@ describe('buildPoint', () => {
     expect(text).toContain('── En discussion (1)')
     expect(text).toContain('• Wandercraft ⭐ — Freelance — Paris — Exosquelettes')
     expect(text).toContain("  Notes : recontacter après l'été")
+    expect(text).toContain('  Annonce : Lead robotique — https://ex.com/job (postée le 12/07/2026)')
     expect(text).toContain('── À contacter (1)')
     expect(text).toContain('• Exotec — Les deux — Lille — Robotique logistique')
   })

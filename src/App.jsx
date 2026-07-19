@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createStore, makeId, exportJSON, DATA_KEY } from './storage/index.js'
 import { createSyncEngine } from './sync/engine.js'
+import { statusOf } from './config/statuses.js'
 import { todayLocal, dueSoonCount } from './lib/dates.js'
 import { downloadText } from './lib/download.js'
 import { copyText } from './lib/clipboard.js'
@@ -195,14 +196,67 @@ export default function App() {
           ...d,
           companies: [
             ...d.companies,
-            { ...data, id: makeId('cmp'), createdAt: nowISO(), updatedAt: nowISO() },
+            {
+              links: [],
+              history: [],
+              ...data,
+              id: makeId('cmp'),
+              createdAt: nowISO(),
+              updatedAt: nowISO(),
+            },
           ],
         })),
       updateCompany: (id, patch) =>
         mutate((d) => ({
           ...d,
+          companies: d.companies.map((c) => {
+            if (c.id !== id) return c
+            // Auto-log a status change into the immutable history timeline.
+            const changed = patch.status && patch.status !== c.status
+            const history = changed
+              ? [
+                  ...(c.history ?? []),
+                  {
+                    id: makeId('evt'),
+                    at: nowISO(),
+                    kind: 'status',
+                    text: `Statut : ${statusOf(c.status).label} → ${statusOf(patch.status).label}`,
+                  },
+                ]
+              : c.history
+            return { ...c, ...patch, history, updatedAt: nowISO() }
+          }),
+        })),
+      addCompanyNote: (id, text) =>
+        mutate((d) => ({
+          ...d,
           companies: d.companies.map((c) =>
-            c.id === id ? { ...c, ...patch, updatedAt: nowISO() } : c,
+            c.id === id
+              ? {
+                  ...c,
+                  history: [
+                    ...(c.history ?? []),
+                    { id: makeId('evt'), at: nowISO(), kind: 'note', text },
+                  ],
+                  updatedAt: nowISO(),
+                }
+              : c,
+          ),
+        })),
+      addContactNote: (id, text) =>
+        mutate((d) => ({
+          ...d,
+          contacts: d.contacts.map((p) =>
+            p.id === id
+              ? {
+                  ...p,
+                  history: [
+                    ...(p.history ?? []),
+                    { id: makeId('evt'), at: nowISO(), kind: 'note', text },
+                  ],
+                  updatedAt: nowISO(),
+                }
+              : p,
           ),
         })),
       // Deleting a company NEVER deletes its contacts: links become free text.
@@ -229,20 +283,37 @@ export default function App() {
           ...d,
           contacts: [
             ...d.contacts,
-            { ...data, id: makeId('cnt'), createdAt: nowISO(), updatedAt: nowISO() },
+            {
+              history: [],
+              ...data,
+              id: makeId('cnt'),
+              createdAt: nowISO(),
+              updatedAt: nowISO(),
+            },
           ],
         })),
       updateContact,
       deleteContact: (id) =>
         mutate((d) => ({ ...d, contacts: d.contacts.filter((p) => p.id !== id) })),
-      // Sets lastContact to today AND appends an activity entry (for stats).
+      // Sets lastContact to today, appends a global stats entry AND a
+      // timestamped entry in the contact's own history timeline.
       markFollowUpDone: (id) =>
         mutate((d) => {
           const day = todayLocal()
           return {
             ...d,
             contacts: d.contacts.map((p) =>
-              p.id === id ? { ...p, lastContact: day, updatedAt: nowISO() } : p,
+              p.id === id
+                ? {
+                    ...p,
+                    lastContact: day,
+                    history: [
+                      ...(p.history ?? []),
+                      { id: makeId('evt'), at: nowISO(), kind: 'relance', text: 'Relance faite' },
+                    ],
+                    updatedAt: nowISO(),
+                  }
+                : p,
             ),
             activityLog: [
               ...(d.activityLog ?? []),

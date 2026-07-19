@@ -79,6 +79,32 @@ export function hasDuplicateIds(doc) {
   return new Set(ids).size !== ids.length
 }
 
+// A job-posting link on a company: url + optional label + posted/repost date.
+function normalizeLink(l) {
+  if (!isPlainObject(l)) return null
+  return {
+    id: typeof l.id === 'string' && l.id ? l.id : makeId('lnk'),
+    url: typeof l.url === 'string' ? l.url : '',
+    label: typeof l.label === 'string' ? l.label : '',
+    postedAt: typeof l.postedAt === 'string' && isValidDateStr(l.postedAt) ? l.postedAt : null,
+  }
+}
+
+// A timestamped, immutable history entry (manual note, status change, relance).
+function normalizeHistoryEntry(h) {
+  if (!isPlainObject(h)) return null
+  return {
+    id: typeof h.id === 'string' && h.id ? h.id : makeId('evt'),
+    at: typeof h.at === 'string' ? h.at : null,
+    kind: typeof h.kind === 'string' && h.kind ? h.kind : 'note',
+    text: typeof h.text === 'string' ? h.text : '',
+  }
+}
+
+function normalizeList(v, fn) {
+  return Array.isArray(v) ? v.map(fn).filter(Boolean) : []
+}
+
 // Normalization PRESERVES unknown fields (a doc written by a slightly newer
 // same-schema build must survive a round trip untouched); it only fills
 // missing/invalid known fields with defaults.
@@ -93,6 +119,8 @@ function normalizeCompany(c) {
     type: typeof c.type === 'string' && c.type ? c.type : DEFAULT_TYPE,
     status: typeof c.status === 'string' && c.status ? c.status : DEFAULT_STATUS,
     priority: Boolean(c.priority),
+    links: normalizeList(c.links, normalizeLink),
+    history: normalizeList(c.history, normalizeHistoryEntry),
     createdAt: typeof c.createdAt === 'string' ? c.createdAt : null,
     updatedAt: typeof c.updatedAt === 'string' ? c.updatedAt : null,
   }
@@ -108,6 +136,7 @@ function normalizeContact(p) {
     role: typeof p.role === 'string' ? p.role : '',
     linkedin: typeof p.linkedin === 'string' ? p.linkedin : '',
     notes: typeof p.notes === 'string' ? p.notes : '',
+    history: normalizeList(p.history, normalizeHistoryEntry),
     lastContact: p.lastContact ?? null,
     nextFollowUp: p.nextFollowUp ?? null,
     createdAt: typeof p.createdAt === 'string' ? p.createdAt : null,

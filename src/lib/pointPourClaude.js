@@ -32,6 +32,12 @@ function companyLine(c) {
   ].filter(Boolean)
   const lines = [`• ${parts.join(' — ')}`]
   if (c.notes) lines.push(`  Notes : ${c.notes}`)
+  for (const l of c.links ?? []) {
+    if (!l.url && !l.label) continue
+    let line = `  Annonce : ${[l.label, l.url].filter(Boolean).join(' — ')}`
+    if (l.postedAt) line += ` (postée le ${formatFR(l.postedAt)})`
+    lines.push(line)
+  }
   return lines
 }
 

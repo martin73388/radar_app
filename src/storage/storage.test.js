@@ -40,6 +40,8 @@ function docWithData() {
     type: 'freelance',
     status: 'in_discussion',
     priority: true,
+    links: [],
+    history: [],
     createdAt: '2026-07-01T10:00:00.000Z',
     updatedAt: '2026-07-10T10:00:00.000Z',
   })
@@ -50,6 +52,7 @@ function docWithData() {
     companyName: '',
     role: 'CTO',
     linkedin: '',
+    history: [],
     notes: 'très réactive',
     lastContact: '2026-07-10',
     nextFollowUp: '2026-07-17',
@@ -207,6 +210,60 @@ describe('unknown-field preservation (forward compatibility)', () => {
     expect(r.ok).toBe(true)
     expect(r.doc.companies[0].linkedinUrl).toBe('https://example.com')
     expect('exportedAt' in r.doc).toBe(false) // stamp stripped, round trip symmetric
+  })
+})
+
+describe('company links & history normalization', () => {
+  it('defaults missing links/history to [] and preserves valid entries', () => {
+    const raw = {
+      schemaVersion: 1,
+      revision: 1,
+      settings: { missionEndDate: null, lastExportAt: null },
+      companies: [
+        {
+          id: 'cmp_1',
+          name: 'X',
+          status: 'to_contact',
+          type: 'cdi',
+          links: [
+            { url: 'linkedin.com/jobs/1', label: 'Offre', postedAt: '2026-07-10' },
+            { url: 'bad-date', postedAt: 'not-a-date' }, // postedAt sanitized to null
+            'garbage', // dropped
+          ],
+          history: [
+            { at: '2026-07-10T09:00:00Z', kind: 'note', text: 'appelé' },
+            null, // dropped
+          ],
+        },
+      ],
+      contacts: [{ id: 'cnt_1', name: 'Y', history: [{ at: 't', kind: 'relance', text: 'Relance faite' }] }],
+    }
+    const s = fakeStorage({ [DATA_KEY]: JSON.stringify(raw) })
+    const r = load(s)
+    expect(r.status).toBe('ok')
+    const c = r.doc.companies[0]
+    expect(c.links).toHaveLength(2)
+    expect(c.links[0]).toMatchObject({ url: 'linkedin.com/jobs/1', label: 'Offre', postedAt: '2026-07-10' })
+    expect(c.links[1].postedAt).toBeNull() // invalid date scrubbed
+    expect(c.links[1].id).toMatch(/^lnk_/)
+    expect(c.history).toHaveLength(1)
+    expect(c.history[0]).toMatchObject({ kind: 'note', text: 'appelé' })
+    expect(c.history[0].id).toMatch(/^evt_/)
+    expect(r.doc.contacts[0].history[0].text).toBe('Relance faite')
+  })
+
+  it('keeps links/history through export → import round-trip', () => {
+    const doc = docWithData()
+    doc.companies[0].links = [
+      { id: 'lnk_1', url: 'https://ex.com/job', label: 'Lead', postedAt: '2026-07-12' },
+    ]
+    doc.companies[0].history = [
+      { id: 'evt_1', at: '2026-07-12T08:00:00.000Z', kind: 'note', text: 'candidature envoyée' },
+    ]
+    const r = parseImport(exportJSON(doc))
+    expect(r.ok).toBe(true)
+    expect(r.doc.companies[0].links).toEqual(doc.companies[0].links)
+    expect(r.doc.companies[0].history).toEqual(doc.companies[0].history)
   })
 })
 

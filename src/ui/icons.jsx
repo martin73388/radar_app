@@ -118,6 +118,21 @@ export const IconCalendar = (p) => (
   </Svg>
 )
 
+export const IconLink = (p) => (
+  <Svg {...p}>
+    <path d="M9.5 14.5l5-5" />
+    <path d="M8 12l-2.2 2.2a3.1 3.1 0 0 0 4.4 4.4L12.5 16" />
+    <path d="M16 12l2.2-2.2a3.1 3.1 0 0 0-4.4-4.4L11.5 8" />
+  </Svg>
+)
+
+export const IconClock = (p) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 7.5V12l3 2" />
+  </Svg>
+)
+
 export const IconChart = (p) => (
   <Svg {...p}>
     <path d="M4 20V4" />

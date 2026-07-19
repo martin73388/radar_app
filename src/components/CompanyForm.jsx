@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { STATUSES, TYPES } from '../config/statuses.js'
 import { useRadar } from '../state/radar.js'
 import ConfirmDialog from './ConfirmDialog.jsx'
+import LinksEditor from './LinksEditor.jsx'
+import HistoryTimeline from './HistoryTimeline.jsx'
 import { IconStar, IconTrash } from '../ui/icons.jsx'
 
 const inputCls =
@@ -9,7 +11,7 @@ const inputCls =
 
 /** Add/edit company form (lives in a bottom sheet). */
 export default function CompanyForm({ company, onSave, onDelete, onClose, onDirtyChange }) {
-  const { doc } = useRadar()
+  const { doc, actions } = useRadar()
   const editing = Boolean(company)
   const [name, setName] = useState(company?.name ?? '')
   const [sector, setSector] = useState(company?.sector ?? '')
@@ -18,11 +20,17 @@ export default function CompanyForm({ company, onSave, onDelete, onClose, onDirt
   const [type, setType] = useState(company?.type ?? 'freelance')
   const [status, setStatus] = useState(company?.status ?? 'to_contact')
   const [priority, setPriority] = useState(company?.priority ?? false)
+  const [links, setLinks] = useState(company?.links ?? [])
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const linkedContacts = editing
     ? doc.contacts.filter((p) => p.companyId === company.id).length
     : 0
+  // History is read live from the document so immediately-appended notes show
+  // without needing to save/reopen the form.
+  const liveHistory = editing
+    ? (doc.companies.find((c) => c.id === company.id)?.history ?? [])
+    : []
 
   // Report unsaved edits so the sheet can guard backdrop/X dismissal.
   const dirty =
@@ -32,7 +40,8 @@ export default function CompanyForm({ company, onSave, onDelete, onClose, onDirt
     notes !== (company?.notes ?? '') ||
     type !== (company?.type ?? 'freelance') ||
     status !== (company?.status ?? 'to_contact') ||
-    priority !== (company?.priority ?? false)
+    priority !== (company?.priority ?? false) ||
+    JSON.stringify(links) !== JSON.stringify(company?.links ?? [])
   useEffect(() => {
     onDirtyChange?.(dirty)
   }, [dirty, onDirtyChange])
@@ -40,7 +49,11 @@ export default function CompanyForm({ company, onSave, onDelete, onClose, onDirt
   function submit(e) {
     e.preventDefault()
     if (!name.trim()) return
-    onSave({ name: name.trim(), sector, city, notes, type, status, priority })
+    // Drop blank link rows; keep the rest.
+    const cleanLinks = links
+      .map((l) => ({ ...l, url: l.url.trim(), label: l.label.trim() }))
+      .filter((l) => l.url || l.label)
+    onSave({ name: name.trim(), sector, city, notes, type, status, priority, links: cleanLinks })
     onClose()
   }
 
@@ -156,12 +169,37 @@ export default function CompanyForm({ company, onSave, onDelete, onClose, onDirt
         />
       </div>
 
+      <div>
+        <span className="mb-1 block text-sm font-medium text-slate-300">
+          Annonces & liens
+        </span>
+        <p className="mb-2 text-xs text-slate-500">
+          Colle ici les offres (LinkedIn ou autre) pour les sortir de tes mails.
+          La date de publication t’aide à juger l’urgence.
+        </p>
+        <LinksEditor value={links} onChange={setLinks} />
+      </div>
+
       <button
         type="submit"
         className="h-12 w-full rounded-xl bg-teal-500 text-[15px] font-semibold text-slate-950 active:bg-teal-400"
       >
         {editing ? 'Enregistrer' : 'Ajouter l’entreprise'}
       </button>
+
+      {editing && (
+        <div>
+          <span className="mb-1 block text-sm font-medium text-slate-300">Suivi</span>
+          <p className="mb-2 text-xs text-slate-500">
+            Historique horodaté de tes mouvements. Les notes ajoutées ici sont
+            enregistrées immédiatement.
+          </p>
+          <HistoryTimeline
+            entries={liveHistory}
+            onAddNote={(text) => actions.addCompanyNote(company.id, text)}
+          />
+        </div>
+      )}
 
       {editing && (
         <button

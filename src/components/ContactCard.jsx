@@ -1,4 +1,5 @@
 import { daysUntil, dueLabel, formatFR } from '../lib/dates.js'
+import { safeHref } from '../lib/url.js'
 import { useRadar } from '../state/radar.js'
 import { IconCheck, IconLinkedIn } from '../ui/icons.jsx'
 
@@ -9,22 +10,6 @@ export function followUpBadge(days) {
   return 'bg-slate-500/15 text-slate-300 border-slate-500/30'
 }
 
-// Accept a bare "linkedin.com/in/x" or a full URL; always return a safe https
-// link, or null for anything that isn't a plausible web link.
-export function linkedinHref(raw) {
-  if (typeof raw !== 'string') return null
-  const v = raw.trim()
-  if (!v) return null
-  const url = /^https?:\/\//i.test(v) ? v : `https://${v}`
-  try {
-    const u = new URL(url)
-    if (u.protocol !== 'http:' && u.protocol !== 'https:') return null
-    return u.href
-  } catch {
-    return null
-  }
-}
-
 export default function ContactCard({ contact, onClick, onDone }) {
   const { doc, today, readOnly } = useRadar()
   const company = contact.companyId
@@ -33,7 +18,7 @@ export default function ContactCard({ contact, onClick, onDone }) {
   const companyLabel = company?.name || contact.companyName
   const sub = [companyLabel, contact.role].filter(Boolean).join(' · ')
   const days = contact.nextFollowUp ? daysUntil(contact.nextFollowUp, today) : null
-  const liHref = linkedinHref(contact.linkedin)
+  const liHref = safeHref(contact.linkedin)
 
   return (
     <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useRadar } from '../state/radar.js'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import DateField from './DateField.jsx'
+import HistoryTimeline from './HistoryTimeline.jsx'
 import { IconTrash } from '../ui/icons.jsx'
 
 const inputCls =
@@ -12,8 +13,11 @@ const inputCls =
  * validated by Martin (Phase 1).
  */
 export default function ContactForm({ contact, onSave, onDelete, onClose, onDirtyChange }) {
-  const { doc } = useRadar()
+  const { doc, actions } = useRadar()
   const editing = Boolean(contact)
+  const liveHistory = editing
+    ? (doc.contacts.find((p) => p.id === contact.id)?.history ?? [])
+    : []
   const [name, setName] = useState(contact?.name ?? '')
   const [companyId, setCompanyId] = useState(contact?.companyId ?? '')
   const [companyName, setCompanyName] = useState(contact?.companyName ?? '')
@@ -121,7 +125,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
         </label>
         <input
           id="cnt-linkedin"
-          type="url"
+          type="text"
           inputMode="url"
           autoCapitalize="none"
           autoCorrect="off"
@@ -166,6 +170,20 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       >
         {editing ? 'Enregistrer' : 'Ajouter le contact'}
       </button>
+
+      {editing && (
+        <div>
+          <span className="mb-1 block text-sm font-medium text-slate-300">Suivi</span>
+          <p className="mb-2 text-xs text-slate-500">
+            Historique horodaté (notes + relances). Les notes sont enregistrées
+            immédiatement.
+          </p>
+          <HistoryTimeline
+            entries={liveHistory}
+            onAddNote={(text) => actions.addContactNote(contact.id, text)}
+          />
+        </div>
+      )}
 
       {editing && (
         <button

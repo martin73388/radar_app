@@ -9,6 +9,7 @@ import {
   countdownLabel,
   isDueSoon,
   dueLabel,
+  relativeDayLabel,
   rescheduleOptions,
   compareByFollowUpUrgency,
 } from './dates.js'
@@ -116,6 +117,18 @@ describe('dueLabel', () => {
     expect(dueLabel(0)).toBe("Aujourd'hui")
     expect(dueLabel(1)).toBe('Demain')
     expect(dueLabel(2)).toBe('Dans 2 j')
+  })
+})
+
+describe('relativeDayLabel', () => {
+  it('labels past dates and today/tomorrow', () => {
+    expect(relativeDayLabel('2026-07-15', '2026-07-15')).toBe("aujourd'hui")
+    expect(relativeDayLabel('2026-07-14', '2026-07-15')).toBe('hier')
+    expect(relativeDayLabel('2026-07-08', '2026-07-15')).toBe('il y a 7 j')
+    expect(relativeDayLabel('2026-07-17', '2026-07-15')).toBe('dans 2 j')
+  })
+  it('handles month boundaries', () => {
+    expect(relativeDayLabel('2026-06-30', '2026-07-02')).toBe('il y a 2 j')
   })
 })
 

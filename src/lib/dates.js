@@ -63,6 +63,15 @@ export function isDueSoon(days) {
   return days <= DUE_SOON_DAYS
 }
 
+/** Relative age of a past date: "aujourd'hui" / "hier" / "il y a N j" (future: "dans N j"). */
+export function relativeDayLabel(date, today) {
+  const past = daysBetween(date, today) // today − date; positive when date is in the past
+  if (past < 0) return `dans ${-past} j`
+  if (past === 0) return "aujourd'hui"
+  if (past === 1) return 'hier'
+  return `il y a ${past} j`
+}
+
 /** Count of contacts whose follow-up is due within ≤2 days (overdue included). */
 export function dueSoonCount(contacts, today) {
   let n = 0
