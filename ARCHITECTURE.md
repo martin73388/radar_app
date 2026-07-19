@@ -352,10 +352,16 @@ contact (name, company, role, last contact, next follow-up, notes). Format:
 3. **Statistiques d'activité** — DONE. Append-only `activityLog` of
    "relance faite" events (schema-compatible); StatsSheet from TABLEAU shows
    relances/week (8-week bars), 7-day/total/won tiles, and companies-by-status.
-4. **Mode sombre** (auto via `prefers-color-scheme`) — PENDING, dedicated
-   pass (full light/dark re-theme of every component).
+4. **Mode sombre** (auto via `prefers-color-scheme`) — **DROPPED** by Martin
+   (2026-07-19): he's happy with the current dark slate/teal theme, no
+   light/dark re-theme wanted.
 
-Each validated before the next.
+Post-ship additions requested by Martin (2026-07-19), also DONE — additive,
+schema-compatible (no version bump):
+- **Job-posting links on companies**: `links[]` (url + label + postedAt),
+  tappable chips on the card + freshness urgency badge, in the export.
+- **Timestamped history / suivi**: immutable `history[]` on companies AND
+  contacts (manual notes + auto status-change and relance entries).
 
 ## 10bis. Multi-device sync via a private GitHub repo (opt-in) — requested by Martin
 

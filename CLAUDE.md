@@ -7,15 +7,22 @@ mobile-first PWA fully self-owned.
 
 ## Current phase
 
-**Phase 2 COMPLETE — Phase 3 (ship) pending merge to `main`.**
-The app is feature-complete on branch `claude/radar-pwa-refactor-2ck5oa`:
-56 unit tests, two adversarial multi-agent review passes (architecture doc,
-then source code — all confirmed findings fixed), full Playwright
-end-to-end drive at 380px (all flows, zero console errors). The GitHub
-Pages deploy workflow ships on the first push to `main`; README carries the
-French install note. Next after ship: approved improvements one at a time
-(LinkedIn field → dark mode → due-today badge → activity stats), each
-validated by Martin before the next.
+**SHIPPED & LIVE.** Deployed on GitHub Pages at
+https://martin73388.github.io/**radar_app**/ (repo `10_Jobseeker` renamed to
+**`radar_app`**, public; data repo for opt-in sync is **`radar_core`**,
+private). `main` is the default branch and auto-deploys on every push
+(Pages source = GitHub Actions; github-pages env allows `main`). 100 unit
+tests, adversarial review passes, Playwright e2e at 380px (all flows + the
+two-device sync, zero console errors).
+
+Improvements delivered (post-ship, one at a time, validated by Martin):
+LinkedIn field, due-today badge, activity stats, job-posting links (+ posted
+date urgency), timestamped history/suivi on companies & contacts.
+**Dark mode: DROPPED** — Martin is happy with the current dark theme
+(2026-07-19). No open work; awaiting Martin's next request.
+
+Note: commits show as "Unverified" on GitHub (no GPG signing in this env) —
+cosmetic only; committer email is already noreply@anthropic.com.
 
 ## Key constraints (from kickoff brief — hard rules)
 
