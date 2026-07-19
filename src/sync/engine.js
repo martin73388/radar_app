@@ -1,5 +1,12 @@
-// Sync engine — ARCHITECTURE.md §10bis. Local-first: sync failures never
-// block the app; conflicts are never resolved silently.
+// Sync engine — ARCHITECTURE.md §10bis / §10ter. Local-first: sync failures
+// never block the app; conflicts are never resolved silently.
+//
+// The engine is REMOTE-AGNOSTIC. By default it drives the GitHub remote
+// (config/state accessors + api below), unchanged from the original design.
+// A second instance can drive another remote (e.g. Google Drive via an Apps
+// Script gateway) by injecting its own `api`, config/state accessors and
+// validators — see src/sync/drive.js and App.jsx. Two instances sharing one
+// `lock` never run cycles concurrently, so adoptions can't race.
 
 import {
   loadSyncConfig,
@@ -18,7 +25,7 @@ export { isValidRepo }
  * Pure decision core.
  * localChanged: local revision moved since last successful sync
  *   (first sync: "has any data").
- * remoteMoved: remote sha differs from the last synced sha
+ * remoteMoved: remote sha/version differs from the last synced one
  *   (first sync with an existing file: true).
  */
 export function decideSync({ remoteExists, remoteMoved, localChanged }) {
@@ -35,16 +42,49 @@ export function hasData(doc) {
   )
 }
 
+/**
+ * A cross-engine serializer: pass the SAME lock to several engines so their
+ * cycles run one at a time (a cycle that adopts mutates the shared local doc,
+ * so overlapping cycles must never interleave).
+ */
+export function createSyncLock() {
+  let tail = Promise.resolve()
+  return (fn) => {
+    const result = tail.then(() => fn())
+    tail = result.then(
+      () => {},
+      () => {},
+    )
+    return result
+  }
+}
+
 const PUSH_DEBOUNCE_MS = 2500
+
+// Default (GitHub) accessors — keep the original behavior byte-for-byte.
+const GH = {
+  loadConfig: (s) => loadSyncConfig(s),
+  saveConfig: (s, c) => saveSyncConfig(s, c),
+  clearConfig: (s) => clearSync(s),
+  loadState: (s) => loadSyncState(s),
+  saveState: (s, st) => saveSyncState(s, st),
+  isValidConfig: (c) => isValidRepo(c.repo),
+  normalizeConfig: (c) => ({ repo: c.repo, token: c.token, path: c.path || 'radar.json' }),
+  sameTarget: (a, b) =>
+    a.repo === b.repo && (a.path || 'radar.json') === (b.path || 'radar.json'),
+}
 
 /**
  * @param deps.storage  Storage for config/state keys
- * @param deps.api      { fetchRemoteFile, putRemoteFile } (injectable in tests)
+ * @param deps.api      { fetchRemoteFile, putRemoteFile } (injectable in tests / per remote)
  * @param deps.getDoc   () => current in-memory document
  * @param deps.adopt    (remoteDoc) => ({ ok, doc?, error? }) — snapshots then
  *                      replaces the local document (App wires applyImport)
  * @param deps.onState  (state) => void
  * @param deps.now      () => Date
+ * @param deps.lock     shared serializer (default: run immediately)
+ * @param deps.loadConfig/saveConfig/clearConfig/loadState/saveState  storage accessors
+ * @param deps.isValidConfig/normalizeConfig/sameTarget  config helpers
  */
 export function createSyncEngine({
   storage,
@@ -53,11 +93,20 @@ export function createSyncEngine({
   adopt,
   onState,
   now = () => new Date(),
+  lock = (fn) => fn(),
+  loadConfig = GH.loadConfig,
+  saveConfig = GH.saveConfig,
+  clearConfig = GH.clearConfig,
+  loadState = GH.loadState,
+  saveState = GH.saveState,
+  isValidConfig = GH.isValidConfig,
+  normalizeConfig = GH.normalizeConfig,
+  sameTarget = GH.sameTarget,
 }) {
   let state = {
-    status: loadSyncConfig(storage) ? 'pending' : 'off',
+    status: loadConfig(storage) ? 'pending' : 'off',
     errorCode: null,
-    lastSyncAt: loadSyncState(storage).lastSyncAt,
+    lastSyncAt: loadState(storage).lastSyncAt,
     conflict: null, // { remoteDoc, remoteSha }
   }
   let busy = false
@@ -89,14 +138,14 @@ export function createSyncEngine({
       status: 'synced',
       errorCode: null,
       conflict: null,
-      lastSyncAt: loadSyncState(storage).lastSyncAt,
+      lastSyncAt: loadState(storage).lastSyncAt,
     })
   }
 
   async function doPush(config, sha, gen) {
     const doc = getDoc()
     // `revision` is a device-local counter — syncing it would make every
-    // adopt dirty the file again and ping-pong commits between devices.
+    // adopt dirty the file again and ping-pong commits between remotes/devices.
     const { revision: _deviceLocal, ...payload } = doc
     const r = await api.putRemoteFile({
       ...config,
@@ -115,7 +164,7 @@ export function createSyncEngine({
       fail(gen, r.error)
       return
     }
-    saveSyncState(storage, {
+    saveState(storage, {
       lastSyncedSha: r.sha,
       lastSyncedRevision: doc.revision,
       lastSyncAt: now().toISOString(),
@@ -130,7 +179,7 @@ export function createSyncEngine({
       fail(gen, 'local')
       return
     }
-    saveSyncState(storage, {
+    saveState(storage, {
       lastSyncedSha: remoteSha,
       lastSyncedRevision: res.doc.revision,
       lastSyncAt: now().toISOString(),
@@ -140,7 +189,7 @@ export function createSyncEngine({
 
   async function cycle() {
     const gen = epoch
-    const config = loadSyncConfig(storage)
+    const config = loadConfig(storage)
     if (!config) {
       setState({ status: 'off', conflict: null })
       return
@@ -158,7 +207,7 @@ export function createSyncEngine({
       return
     }
 
-    const syncState = loadSyncState(storage)
+    const syncState = loadState(storage)
     const doc = getDoc()
     const localChanged =
       syncState.lastSyncedRevision == null
@@ -182,6 +231,9 @@ export function createSyncEngine({
       return
     }
 
+    // Adoption (and conflict preview) goes through the SAME strict validation
+    // as a manual import: not-JSON / not-a-Radar-doc / newer-version are all
+    // rejected — never adopt garbage from a remote.
     const parsed = parseImport(remote.text)
     if (!parsed.ok) {
       fail(gen, parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
@@ -204,7 +256,8 @@ export function createSyncEngine({
     }
     busy = true
     try {
-      await task()
+      // The shared lock serializes cycles across engines (no adoption races).
+      await lock(() => task())
     } finally {
       busy = false
       if (queued) {
@@ -216,18 +269,18 @@ export function createSyncEngine({
 
   return {
     getState: () => ({ ...state }),
-    isConfigured: () => Boolean(loadSyncConfig(storage)),
-    getConfig: () => loadSyncConfig(storage),
+    isConfigured: () => Boolean(loadConfig(storage)),
+    getConfig: () => loadConfig(storage),
 
     syncNow: () => run(cycle),
 
     /** Debounced push after a local mutation. */
     schedulePush: () => {
-      if (!loadSyncConfig(storage)) return
+      if (!loadConfig(storage)) return
       if (state.status === 'conflict') return // blocked until resolved
       // Nothing new to push (e.g. the doc just changed because we adopted a
       // remote version) → don't flip to 'pending' or run a pointless cycle.
-      const syncState = loadSyncState(storage)
+      const syncState = loadState(storage)
       if (
         syncState.lastSyncedRevision != null &&
         getDoc().revision === syncState.lastSyncedRevision
@@ -241,18 +294,15 @@ export function createSyncEngine({
 
     /** Validate + store the config, then run the first sync. */
     configure: (config) => {
-      if (!isValidRepo(config.repo)) return false
-      const prev = loadSyncConfig(storage)
-      saveSyncConfig(storage, {
-        repo: config.repo,
-        token: config.token,
-        path: config.path || 'radar.json',
-      })
-      // Only forget device state on a NEW pairing. Re-entering the same repo
-      // (e.g. renewing an expired token) keeps the sync anchor so it doesn't
+      if (!isValidConfig(config)) return false
+      const prev = loadConfig(storage)
+      const toSave = normalizeConfig(config)
+      saveConfig(storage, toSave)
+      // Only forget device state on a NEW pairing. Re-entering the same target
+      // (e.g. renewing a token/secret) keeps the sync anchor so it doesn't
       // trigger a spurious conflict against an unchanged remote.
-      if (!prev || prev.repo !== config.repo || (config.path || 'radar.json') !== (prev.path || 'radar.json')) {
-        saveSyncState(storage, {
+      if (!prev || !sameTarget(prev, toSave)) {
+        saveState(storage, {
           lastSyncedSha: null,
           lastSyncedRevision: null,
           lastSyncAt: null,
@@ -267,7 +317,7 @@ export function createSyncEngine({
     disable: () => {
       epoch++ // cancel any in-flight cycle so it can't resurrect state
       clearTimeout(pushTimer)
-      clearSync(storage)
+      clearConfig(storage)
       setState({ status: 'off', errorCode: null, conflict: null, lastSyncAt: null })
     },
 
@@ -276,7 +326,7 @@ export function createSyncEngine({
       run(async () => {
         const gen = epoch
         if (!state.conflict) return
-        const config = loadSyncConfig(storage)
+        const config = loadConfig(storage)
         if (!config) return
         setState({ status: 'syncing', conflict: null })
         const remote = await api.fetchRemoteFile(config) // fresh sha for CAS
@@ -293,7 +343,7 @@ export function createSyncEngine({
       run(async () => {
         const gen = epoch
         if (!state.conflict) return
-        const config = loadSyncConfig(storage)
+        const config = loadConfig(storage)
         if (!config) return
         setState({ status: 'syncing', conflict: null })
         const remote = await api.fetchRemoteFile(config) // may have moved again

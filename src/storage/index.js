@@ -15,6 +15,9 @@ const MIGRATION_BACKUP_PREFIX = 'radar:data:backup:v'
 // Device-local sync settings — NEVER part of the synced/exported document.
 const SYNC_CONFIG_KEY = 'radar:sync:config' // { repo: 'owner/name', token, path }
 const SYNC_STATE_KEY = 'radar:sync:state' // { lastSyncedSha, lastSyncedRevision }
+// Second remote (Google Drive gateway) — separate device-local keys.
+const SYNC_DRIVE_CONFIG_KEY = 'radar:sync:drive:config' // { url, secret, path }
+const SYNC_DRIVE_STATE_KEY = 'radar:sync:drive:state' // { lastSyncedVersion, lastSyncedRevision, lastSyncAt }
 
 // MIGRATIONS[n] migrates a vn document to v(n+1). v1 is the baseline.
 export const MIGRATIONS = {}
@@ -491,6 +494,54 @@ export function clearSync(storage) {
   try {
     storage.removeItem(SYNC_CONFIG_KEY)
     storage.removeItem(SYNC_STATE_KEY)
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Second sync remote — Google Drive via Apps Script gateway (ARCHITECTURE.md
+// §10ter). SEPARATE device-local keys; never collides with the GitHub remote.
+// The engine works with a uniform `lastSyncedSha`; Drive persists it under
+// `lastSyncedVersion` (the gateway's CAS token) — translated here.
+
+export function loadDriveSyncConfig(storage) {
+  const cfg = loadJsonKey(storage, SYNC_DRIVE_CONFIG_KEY)
+  if (!cfg || typeof cfg.url !== 'string' || typeof cfg.secret !== 'string') {
+    return null
+  }
+  return { url: cfg.url, secret: cfg.secret, path: cfg.path || 'radar.json' }
+}
+
+export function saveDriveSyncConfig(storage, config) {
+  return saveJsonKey(storage, SYNC_DRIVE_CONFIG_KEY, config)
+}
+
+export function loadDriveSyncState(storage) {
+  const s = loadJsonKey(storage, SYNC_DRIVE_STATE_KEY)
+  return {
+    // engine field `lastSyncedSha` ← persisted `lastSyncedVersion`
+    lastSyncedSha:
+      typeof s?.lastSyncedVersion === 'string' ? s.lastSyncedVersion : null,
+    lastSyncedRevision: Number.isInteger(s?.lastSyncedRevision)
+      ? s.lastSyncedRevision
+      : null,
+    lastSyncAt: typeof s?.lastSyncAt === 'string' ? s.lastSyncAt : null,
+  }
+}
+
+export function saveDriveSyncState(storage, state) {
+  return saveJsonKey(storage, SYNC_DRIVE_STATE_KEY, {
+    lastSyncedVersion: state.lastSyncedSha ?? null,
+    lastSyncedRevision: state.lastSyncedRevision ?? null,
+    lastSyncAt: state.lastSyncAt ?? null,
+  })
+}
+
+export function clearDriveSync(storage) {
+  try {
+    storage.removeItem(SYNC_DRIVE_CONFIG_KEY)
+    storage.removeItem(SYNC_DRIVE_STATE_KEY)
   } catch {
     /* nothing to clear */
   }

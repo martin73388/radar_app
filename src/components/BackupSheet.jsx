@@ -7,6 +7,7 @@ import { downloadText } from '../lib/download.js'
 import { copyText } from '../lib/clipboard.js'
 import { formatFR, todayLocal } from '../lib/dates.js'
 import { isValidRepo } from '../sync/engine.js'
+import { isValidDriveConfig } from '../sync/drive.js'
 import { syncStatusLabel } from '../sync/labels.js'
 
 const UNDO_ERRORS = {
@@ -34,7 +35,16 @@ const syncInputCls =
 
 /** Sauvegarde: the §5 export/import APIs + §10bis sync, from the TABLEAU ⚙️. */
 export default function BackupSheet({ open, onClose }) {
-  const { doc, actions, readOnly, showToast, syncState, syncEngine } = useRadar()
+  const {
+    doc,
+    actions,
+    readOnly,
+    showToast,
+    syncState,
+    syncEngine,
+    driveSyncState,
+    driveSyncEngine,
+  } = useRadar()
   const fileRef = useRef(null)
   const [pasted, setPasted] = useState('')
   const [importError, setImportError] = useState(null)
@@ -42,6 +52,11 @@ export default function BackupSheet({ open, onClose }) {
   const [repoInput, setRepoInput] = useState(() => syncEngine.getConfig()?.repo ?? '')
   const [tokenInput, setTokenInput] = useState('')
   const [syncError, setSyncError] = useState(null)
+  const [driveUrlInput, setDriveUrlInput] = useState(
+    () => driveSyncEngine.getConfig()?.url ?? '',
+  )
+  const [driveSecretInput, setDriveSecretInput] = useState('')
+  const [driveError, setDriveError] = useState(null)
 
   function activateSync() {
     const repo = repoInput.trim()
@@ -63,6 +78,28 @@ export default function BackupSheet({ open, onClose }) {
   function disableSync() {
     syncEngine.disable()
     showToast({ message: 'Synchro désactivée — tes données locales sont conservées.' })
+  }
+
+  function activateDriveSync() {
+    const url = driveUrlInput.trim()
+    const secret = driveSecretInput.trim()
+    if (!isValidDriveConfig({ url, secret })) {
+      setDriveError(
+        !/^https:\/\/\S+$/i.test(url)
+          ? 'URL attendue : https://… (déploiement Apps Script « Web App »).'
+          : 'Colle le secret partagé de la passerelle.',
+      )
+      return
+    }
+    setDriveError(null)
+    setDriveSecretInput('')
+    driveSyncEngine.configure({ url, secret })
+    showToast({ message: 'Synchro Drive activée — première synchronisation…' })
+  }
+
+  function disableDriveSync() {
+    driveSyncEngine.disable()
+    showToast({ message: 'Synchro Drive désactivée — tes données locales sont conservées.' })
   }
 
   function doExportDownload() {
@@ -288,6 +325,89 @@ export default function BackupSheet({ open, onClose }) {
                 </button>
                 {syncError && (
                   <p className="text-sm font-medium text-rose-300">{syncError}</p>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Synchronisation Drive (Cockpit)
+          </h3>
+          {driveSyncEngine.isConfigured() ? (
+            <>
+              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                Passerelle :{' '}
+                <span className="font-mono text-xs text-slate-300 break-all">
+                  {driveSyncEngine.getConfig()?.url}
+                </span>
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-300">
+                {syncStatusLabel(driveSyncState, 'drive')}
+              </p>
+              <div className="mt-3 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => driveSyncEngine.syncNow()}
+                  className="h-12 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                >
+                  Synchroniser maintenant
+                </button>
+                <button
+                  type="button"
+                  onClick={disableDriveSync}
+                  className="h-12 rounded-xl bg-slate-800 text-sm font-medium text-slate-300 active:bg-slate-700"
+                >
+                  Désactiver
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+                Synchronise aussi vers <strong>Google Drive</strong> via ta
+                passerelle Apps Script (le Cockpit). Colle l’URL du déploiement
+                « Web App » et son secret partagé — ils restent sur cet appareil,
+                jamais dans le code. GitHub reste actif en parallèle : Drive
+                s’ajoute, il ne remplace rien.
+              </p>
+              <div className="mt-3 space-y-2">
+                <input
+                  aria-label="URL de la passerelle Drive"
+                  className={syncInputCls}
+                  value={driveUrlInput}
+                  onChange={(e) => setDriveUrlInput(e.target.value)}
+                  placeholder="https://script.google.com/macros/s/…/exec"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  inputMode="url"
+                />
+                <input
+                  aria-label="Secret de la passerelle Drive"
+                  type="password"
+                  className={syncInputCls}
+                  value={driveSecretInput}
+                  onChange={(e) => setDriveSecretInput(e.target.value)}
+                  placeholder="secret partagé"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  data-1p-ignore
+                  data-lpignore="true"
+                />
+                <button
+                  type="button"
+                  onClick={activateDriveSync}
+                  className="h-12 w-full rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                >
+                  Activer la synchro Drive
+                </button>
+                {driveError && (
+                  <p className="text-sm font-medium text-rose-300">{driveError}</p>
                 )}
               </div>
             </>

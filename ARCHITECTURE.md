@@ -420,7 +420,62 @@ in his private GitHub repo — visible to GitHub and to anyone holding the
 repo access or the token. Fine-grained single-repo token + private repo is
 the mitigation; sync stays opt-in per device.
 
-## 10ter. Phase 1 gate — CLOSED (all validated by Martin)
+## 10ter. Second sync remote — Google Drive via an Apps Script gateway (opt-in, additive)
+
+**Scope addition validated by Martin (2026-07-19)**: a **second**, independent
+sync target alongside GitHub — a Google Drive file reached through an **Apps
+Script Web App gateway** (the "Cockpit"). This is **purely additive**: GitHub
+§10bis and localStorage are untouched and remain the safety net (zero data
+loss). Both remotes can be active at once; each is opt-in and configured
+per device. Without configuration Drive is simply off.
+
+Design:
+
+- **Same engine, second instance.** `createSyncEngine` is remote-agnostic:
+  the GitHub instance keeps its exact original behavior via built-in
+  defaults; the Drive instance injects its own `api` (`src/sync/drive.js`),
+  config/state accessors and validators. The two instances share **one
+  `createSyncLock()` serializer**, so their cycles never overlap and
+  adoptions can't race the shared local document.
+- **Gateway client (`src/sync/drive.js`)** speaks the same interface as
+  `github.js` — `fetchRemoteFile → { ok, exists, sha?, text? }`,
+  `putRemoteFile → { ok, sha } | { ok:false, error }` — so the engine is
+  reused unchanged. The gateway's opaque `version` (a content hash) plays
+  the role of GitHub's `sha` (the CAS token); it is mapped `version ↔ sha`
+  at the client boundary.
+- **CORS: only "simple requests"** (the Apps Script gateway does not answer
+  `OPTIONS` preflights). Therefore GET carries auth in the query string with
+  **no custom headers**, and POST uses **`Content-Type: text/plain`** (never
+  `application/json`) with the JSON sent as a raw text body. A `conflict`
+  from the gateway maps to `sha-conflict` → the engine re-pulls, exactly like
+  GitHub's 409/422.
+- **Separate device-local keys**, never colliding with GitHub:
+  `radar:sync:drive:config` = `{ url, secret, path }` and
+  `radar:sync:drive:state` = `{ lastSyncedVersion, lastSyncedRevision,
+  lastSyncAt }`. The uniform engine field `lastSyncedSha` is translated to/from
+  the persisted `lastSyncedVersion` in the storage accessors. **URL + secret
+  live only on the device** — never inside the synced/exported document,
+  never in the bundle.
+- **Same data-safety gate as GitHub:** adoption of a Drive payload goes
+  through `parseImport` (must be a Radar doc — `schemaVersion` present,
+  `companies`/`contacts` arrays — not a newer schema) and `applyImport`
+  (pre-adopt snapshot + revision guard). The pushed payload is still the §2
+  document **minus `revision`**.
+- **Orchestration:** every trigger (launch, `visibilitychange→visible`,
+  back-online, « Synchroniser maintenant », debounced push) reconciles **both**
+  configured remotes; the shared lock serializes GitHub then Drive. Conflicts
+  are per-remote, each with its own banner (« … (GitHub) » / « … (Google
+  Drive) ») and explicit « Garder cet appareil » / « Prendre l'autre version ».
+- **UI:** a « Synchronisation Drive (Cockpit) » section in the Sauvegarde
+  sheet (URL + secret + status + Synchroniser maintenant + Désactiver), next
+  to the GitHub section. The ⚙️ status dot shows the **worst** of the two
+  remotes (`combineSyncStatus`).
+
+Privacy note (documented to Martin): with Drive sync ON, the prospect list
+also lives in his Google Drive, reachable by whoever holds the gateway URL +
+secret. Same opt-in, device-local-credential mitigation as GitHub.
+
+## 10quater. Phase 1 gate — CLOSED (all validated by Martin)
 
 1. **Status list** (§3) — the 8 proposed statuses validated as-is.
 2. Reschedule offsets computed **from today** (§4) — confirmed.
