@@ -52,24 +52,24 @@ export default function Contacts({ cmd, onCmdConsumed }) {
     .sort(compareByFollowUpUrgency)
 
   return (
-    <div className="space-y-3">
-      <h1 className="text-xl font-bold text-slate-100">Contacts</h1>
+    <div className="stack-3">
+      <h1 className="screen-title">Contacts</h1>
       <SearchBar value={search} onChange={setSearch} placeholder="Rechercher…" />
 
       {doc.contacts.length === 0 ? (
         <EmptyState
-          icon={<IconUsers className="h-10 w-10" />}
+          icon={<IconUsers size={40} />}
           title="Aucun contact pour l’instant"
           hint="Ajoute un premier contact avec le bouton +"
         />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={<IconUsers className="h-10 w-10" />}
+          icon={<IconUsers size={40} />}
           title="Aucun résultat"
           hint="Modifie la recherche"
         />
       ) : (
-        <ul className="space-y-2 pb-40">
+        <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: '0 0 10rem' }}>
           {filtered.map((p) => (
             <li key={p.id}>
               <ContactCard

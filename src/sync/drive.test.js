@@ -1,11 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fetchRemoteFile, putRemoteFile, isValidDriveConfig } from './drive.js'
+import { read, write, isValidDriveConfig, isConfigured } from './drive.js'
+import { ConflictError, AuthError, SyncError } from './errors.js'
 
 const URL = 'https://script.google.com/macros/s/AKfycb/exec'
-const SECRET = 's3cr3t'
+const CFG = { url: URL, secret: 's3cr3t', path: 'radar.json' }
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {
-  return { ok, status, text: async () => JSON.stringify(body) }
+  return { ok, status, json: async () => body }
 }
 
 let fetchMock
@@ -17,161 +18,114 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-describe('isValidDriveConfig', () => {
+describe('isValidDriveConfig / isConfigured', () => {
   it('accepts an https URL with a non-empty secret', () => {
-    expect(isValidDriveConfig({ url: URL, secret: SECRET })).toBe(true)
-    expect(isValidDriveConfig({ url: '  ' + URL + '  ', secret: '  x ' })).toBe(true)
+    expect(isValidDriveConfig(CFG)).toBe(true)
+    expect(isConfigured(CFG)).toBe(true)
   })
   it('rejects non-https, empty URL or empty secret', () => {
-    expect(isValidDriveConfig({ url: 'http://x.test', secret: SECRET })).toBe(false)
-    expect(isValidDriveConfig({ url: '', secret: SECRET })).toBe(false)
-    expect(isValidDriveConfig({ url: URL, secret: '' })).toBe(false)
-    expect(isValidDriveConfig({ url: URL, secret: '   ' })).toBe(false)
+    expect(isValidDriveConfig({ url: 'http://x.test', secret: 's' })).toBe(false)
+    expect(isValidDriveConfig({ url: '', secret: 's' })).toBe(false)
+    expect(isValidDriveConfig({ url: URL, secret: '  ' })).toBe(false)
     expect(isValidDriveConfig(null)).toBe(false)
-    expect(isValidDriveConfig({})).toBe(false)
+    expect(isConfigured(null)).toBe(false)
   })
 })
 
-describe('fetchRemoteFile (gateway GET, CORS-simple)', () => {
-  it('maps gateway {ok,exists,version,content} → {ok,exists,sha,text}', async () => {
-    fetchMock.mockResolvedValue(
-      jsonResponse({ ok: true, exists: true, version: 'v7', content: '{"a":1}' }),
-    )
-    const r = await fetchRemoteFile({ url: URL, secret: SECRET, path: 'radar.json' })
-    expect(r).toEqual({ ok: true, exists: true, sha: 'v7', text: '{"a":1}' })
-  })
-
-  it('sends auth in the query string and NO custom headers (no preflight)', async () => {
+describe('read (gateway GET — CORS-simple, protocol §4)', () => {
+  it('sends auth in the query string with NO custom headers (no preflight)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, exists: false }))
-    await fetchRemoteFile({ url: URL, secret: SECRET, path: 'radar.json' })
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    await read(CFG)
     const [calledUrl, opts] = fetchMock.mock.calls[0]
-    expect(calledUrl).toContain(`secret=${SECRET}`)
-    expect(calledUrl).toContain('file=radar.json')
-    // A simple GET: either no options object, or one without headers/method.
-    expect(opts?.headers).toBeUndefined()
-    expect(opts?.method ?? 'GET').toBe('GET')
+    expect(calledUrl).toBe(`${URL}?secret=s3cr3t&file=radar.json`)
+    expect(opts.method).toBe('GET')
+    expect(opts.headers).toBeUndefined()
   })
 
-  it('missing remote file resolves ok:true, exists:false (like a missing GitHub file)', async () => {
+  it('missing file resolves exists:false', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, exists: false }))
-    const r = await fetchRemoteFile({ url: URL, secret: SECRET, path: 'radar.json' })
-    expect(r).toEqual({ ok: true, exists: false })
+    expect(await read(CFG)).toEqual({ exists: false, version: null, content: null, raw: null })
   })
 
-  it('maps gateway logical errors: auth→auth, busy→network, bad-request→api', async () => {
+  it('maps {ok,exists,version,content} with content parsed AND raw preserved', async () => {
+    const text = JSON.stringify({ schemaVersion: 1, companies: [], contacts: [] })
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, exists: true, version: 'v7', content: text }))
+    const r = await read(CFG)
+    expect(r.exists).toBe(true)
+    expect(r.version).toBe('v7')
+    expect(r.raw).toBe(text)
+    expect(r.content.schemaVersion).toBe(1)
+  })
+
+  it('passes through already-parsed object content (raw null) for the engine guard', async () => {
+    const obj = { app: 'cockpit', todos: [], habits: [] }
+    fetchMock.mockResolvedValue(jsonResponse({ ok: true, exists: true, version: 'v1', content: obj }))
+    const r = await read(CFG)
+    expect(r.content).toEqual(obj)
+    expect(r.raw).toBeNull()
+  })
+
+  it('gateway auth error throws AuthError', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'auth' }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'auth',
-    })
+    await expect(read(CFG)).rejects.toBeInstanceOf(AuthError)
+  })
+
+  it('gateway busy is a TRANSIENT SyncError (retried next trigger)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'busy' }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'network',
-    })
-    fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'bad-request' }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'api',
-    })
+    const err = await read(CFG).catch((e) => e)
+    expect(err).toBeInstanceOf(SyncError)
+    expect(err.transient).toBe(true)
   })
 
-  it('maps HTTP 401/403 → auth and other non-2xx → api', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({}, { ok: false, status: 403 }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'auth',
-    })
-    fetchMock.mockResolvedValue(jsonResponse({}, { ok: false, status: 500 }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'api',
-    })
-  })
-
-  it('a thrown fetch (offline) → network', async () => {
+  it('network failure is a transient SyncError', async () => {
     fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'network',
-    })
-  })
-
-  it('a non-JSON / malformed gateway body → api', async () => {
-    fetchMock.mockResolvedValue({ ok: true, status: 200, text: async () => 'not json' })
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'api',
-    })
-    // exists:true but missing content/version fields
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, exists: true, version: 'v' }))
-    expect(await fetchRemoteFile({ url: URL, secret: SECRET, path: 'x' })).toEqual({
-      ok: false,
-      error: 'api',
-    })
+    const err = await read(CFG).catch((e) => e)
+    expect(err).toBeInstanceOf(SyncError)
+    expect(err.transient).toBe(true)
   })
 })
 
-describe('putRemoteFile (gateway POST, CORS-simple text/plain CAS)', () => {
-  it('POSTs text/plain (NOT application/json) with a JSON string body', async () => {
+describe('write (gateway POST — CAS on baseVersion, protocol §4)', () => {
+  it('POSTs text/plain (NEVER application/json) with the JSON protocol body', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, version: 'v8' }))
-    await putRemoteFile({ url: URL, secret: SECRET, path: 'radar.json', text: '{"a":1}', sha: 'v7' })
+    const r = await write(CFG, '{"a":1}', 'v7')
+    expect(r).toEqual({ version: 'v8' })
     const [calledUrl, opts] = fetchMock.mock.calls[0]
     expect(calledUrl).toBe(URL)
     expect(opts.method).toBe('POST')
-    // Must be a simple request → text/plain, never application/json.
     expect(opts.headers['Content-Type']).toMatch(/^text\/plain/)
     expect(opts.headers['Content-Type']).not.toMatch(/application\/json/)
-    const body = JSON.parse(opts.body)
-    expect(body).toEqual({
-      secret: SECRET,
+    expect(JSON.parse(opts.body)).toEqual({
+      secret: 's3cr3t',
       file: 'radar.json',
       content: '{"a":1}',
       baseVersion: 'v7',
     })
   })
 
-  it('sends baseVersion:"" when creating the file (no sha)', async () => {
+  it('sends baseVersion:"" when creating the file (no base)', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: true, version: 'v1' }))
-    await putRemoteFile({ url: URL, secret: SECRET, path: 'radar.json', text: '{}' })
-    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
-    expect(body.baseVersion).toBe('')
+    await write(CFG, '{}', null)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).baseVersion).toBe('')
   })
 
-  it('maps {ok:true,version} → {ok:true,sha}', async () => {
-    fetchMock.mockResolvedValue(jsonResponse({ ok: true, version: 'v9' }))
-    const r = await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}', sha: 'v8' })
-    expect(r).toEqual({ ok: true, sha: 'v9' })
-  })
-
-  it('maps a CAS conflict → sha-conflict (engine re-pulls)', async () => {
+  it('fix (a)+(e): a CAS conflict throws ConflictError CARRYING version and parsed content', async () => {
+    const competing = JSON.stringify({ app: 'cockpit', todos: [], habits: [] })
     fetchMock.mockResolvedValue(
-      jsonResponse({ ok: false, error: 'conflict', version: 'vX' }),
+      jsonResponse({ ok: false, error: 'conflict', version: 'vX', content: competing }),
     )
-    const r = await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}', sha: 'v8' })
-    expect(r).toEqual({ ok: false, error: 'sha-conflict' })
+    const err = await write(CFG, '{}', 'v7').catch((e) => e)
+    expect(err).toBeInstanceOf(ConflictError)
+    expect(err.version).toBe('vX')
+    expect(err.content).toEqual({ app: 'cockpit', todos: [], habits: [] }) // engine's guard sees the payload
   })
 
-  it('maps auth/busy/bad-request errors like the reader does', async () => {
+  it('auth / busy on write behave like on read', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'auth' }))
-    expect((await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}' })).error).toBe(
-      'auth',
-    )
+    await expect(write(CFG, '{}', 'v')).rejects.toBeInstanceOf(AuthError)
     fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'busy' }))
-    expect((await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}' })).error).toBe(
-      'network',
-    )
-    fetchMock.mockResolvedValue(jsonResponse({ ok: false, error: 'bad-request' }))
-    expect((await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}' })).error).toBe(
-      'api',
-    )
-  })
-
-  it('a thrown fetch (offline) → network', async () => {
-    fetchMock.mockRejectedValue(new TypeError('Failed to fetch'))
-    expect((await putRemoteFile({ url: URL, secret: SECRET, path: 'x', text: '{}' })).error).toBe(
-      'network',
-    )
+    const err = await write(CFG, '{}', 'v').catch((e) => e)
+    expect(err).toBeInstanceOf(SyncError)
+    expect(err.transient).toBe(true)
   })
 })

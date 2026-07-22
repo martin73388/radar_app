@@ -7,9 +7,9 @@ import { IconStar, IconLink } from '../ui/icons.jsx'
 
 // Freshness of the most recent job posting → how urgent it is to respond.
 function postingBadge(days) {
-  if (days <= 3) return 'bg-teal-500/15 text-teal-300 border-teal-500/30'
-  if (days <= 14) return 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-  return 'bg-slate-500/15 text-slate-400 border-slate-500/30'
+  if (days <= 3) return 'badge-soon'
+  if (days <= 14) return 'badge-today'
+  return 'badge-later'
 }
 
 export default function CompanyCard({ company, onClick }) {
@@ -23,41 +23,70 @@ export default function CompanyCard({ company, onClick }) {
   const postedDays = freshest ? daysBetween(freshest.postedAt, today) : null
 
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <button type="button" onClick={onClick} className="block w-full text-left">
-        <div className="flex items-start justify-between gap-2">
-          <div className="min-w-0">
-            <p className="flex items-center gap-1.5 truncate text-[15px] font-semibold text-slate-100">
-              {company.priority && (
-                <IconStar filled className="h-4 w-4 shrink-0 text-amber-300" />
-              )}
-              <span className="truncate">{company.name}</span>
+    <div className="card card-pad">
+      <button
+        type="button"
+        onClick={onClick}
+        style={{
+          display: 'block',
+          width: '100%',
+          textAlign: 'left',
+          font: 'inherit',
+          color: 'inherit',
+          background: 'none',
+          border: 'none',
+          padding: 0,
+          cursor: 'pointer',
+        }}
+      >
+        <div className="row-between" style={{ alignItems: 'flex-start' }}>
+          <div className="flex-1">
+            <p className="row truncate" style={{ gap: 6, fontWeight: 600 }}>
+              {company.priority && <IconStar filled size={16} className="star" />}
+              <span className="truncate" style={{ minWidth: 0 }}>
+                {company.name}
+              </span>
             </p>
-            {sub && <p className="mt-0.5 truncate text-sm text-slate-400">{sub}</p>}
+            {sub && (
+              <p className="muted small truncate" style={{ marginTop: 2 }}>
+                {sub}
+              </p>
+            )}
           </div>
-          <span className="shrink-0 rounded-lg bg-slate-800 px-2 py-0.5 text-xs font-medium text-slate-300">
+          <span className="chip" style={{ flex: 'none' }}>
             {typeOf(company.type).label}
           </span>
         </div>
-        <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
           <StatusPill statusKey={company.status} />
           {postedDays != null && (
             <span
-              className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-xs font-medium ${postingBadge(postedDays)}`}
+              className={`badge ${postingBadge(postedDays)}`}
+              style={{ whiteSpace: 'nowrap' }}
             >
               Annonce {relativeDayLabel(freshest.postedAt, today)}
             </span>
           )}
         </div>
         {company.notes && (
-          <p className="mt-2 line-clamp-2 text-sm leading-snug text-slate-400">
+          <p
+            className="muted small"
+            style={{
+              marginTop: 8,
+              lineHeight: 1.35,
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+            }}
+          >
             {company.notes}
           </p>
         )}
       </button>
 
       {links.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-2">
+        <div className="row" style={{ marginTop: 10, flexWrap: 'wrap' }}>
           {links.map((l) => (
             <a
               key={l.id}
@@ -65,10 +94,13 @@ export default function CompanyCard({ company, onClick }) {
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
-              className="flex min-h-9 items-center gap-1.5 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-xs font-medium text-sky-300 active:bg-sky-500/20"
+              className="chip"
+              style={{ minHeight: 36, color: 'var(--primary)', textDecoration: 'none' }}
             >
-              <IconLink className="h-3.5 w-3.5 shrink-0" />
-              <span className="max-w-[10rem] truncate">{l.label || 'Annonce'}</span>
+              <IconLink size={14} />
+              <span className="truncate" style={{ maxWidth: '10rem' }}>
+                {l.label || 'Annonce'}
+              </span>
             </a>
           ))}
         </div>

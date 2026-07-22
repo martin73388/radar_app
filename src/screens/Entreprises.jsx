@@ -66,38 +66,33 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
         Number(b.priority) - Number(a.priority) || a.name.localeCompare(b.name, 'fr'),
     )
 
-  const chipCls = (active) =>
-    `h-9 shrink-0 rounded-full border px-3 text-sm font-medium ${
-      active
-        ? 'border-teal-500/50 bg-teal-500/15 text-teal-300'
-        : 'border-slate-800 bg-slate-900 text-slate-400'
-    }`
-
   return (
-    <div className="space-y-3">
-      <h1 className="text-xl font-bold text-slate-100">Entreprises</h1>
+    <div className="stack-3">
+      <h1 className="screen-title">Entreprises</h1>
       <SearchBar value={search} onChange={setSearch} placeholder="Rechercher…" />
 
-      <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div className="chip-row">
         {TYPES.map((t) => (
           <button
             key={t.key}
             type="button"
+            aria-pressed={typeFilter === t.key}
             onClick={() => setTypeFilter(typeFilter === t.key ? null : t.key)}
-            className={chipCls(typeFilter === t.key)}
+            className="filter-chip"
           >
             {t.label}
           </button>
         ))}
       </div>
-      <div ref={statusRowRef} className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1">
+      <div ref={statusRowRef} className="chip-row">
         {STATUSES.map((s) => (
           <button
             key={s.key}
             type="button"
             data-status={s.key}
+            aria-pressed={statusFilter === s.key}
             onClick={() => setStatusFilter(statusFilter === s.key ? null : s.key)}
-            className={chipCls(statusFilter === s.key)}
+            className="filter-chip"
           >
             {s.label}
           </button>
@@ -107,8 +102,9 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
       {statusFilter && !STATUSES.some((s) => s.key === statusFilter) && (
         <button
           type="button"
+          aria-pressed="true"
           onClick={() => setStatusFilter(null)}
-          className={chipCls(true)}
+          className="filter-chip"
         >
           {statusOf(statusFilter).label} ✕
         </button>
@@ -116,18 +112,18 @@ export default function Entreprises({ cmd, onCmdConsumed }) {
 
       {doc.companies.length === 0 ? (
         <EmptyState
-          icon={<IconBuilding className="h-10 w-10" />}
+          icon={<IconBuilding size={40} />}
           title="Aucune entreprise pour l’instant"
           hint="Ajoute ta première cible avec le bouton +"
         />
       ) : filtered.length === 0 ? (
         <EmptyState
-          icon={<IconBuilding className="h-10 w-10" />}
+          icon={<IconBuilding size={40} />}
           title="Aucun résultat"
           hint="Modifie la recherche ou les filtres"
         />
       ) : (
-        <ul className="space-y-2 pb-40">
+        <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: '0 0 10rem' }}>
           {filtered.map((c) => (
             <li key={c.id}>
               <CompanyCard

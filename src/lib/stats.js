@@ -38,7 +38,6 @@ export function companiesByStatus(companies) {
   return [...known, ...unknown].map((key) => ({
     key,
     label: statusOf(key).label,
-    dot: statusOf(key).dot,
     count: counts.get(key),
   }))
 }

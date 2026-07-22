@@ -1,8 +1,6 @@
 import DateField from './DateField.jsx'
 import { IconPlus, IconTrash } from '../ui/icons.jsx'
-
-const inputCls =
-  'h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none'
+import { makeId } from '../storage/index.js'
 
 /**
  * Editable list of job-posting links on a company: url + optional label +
@@ -16,7 +14,9 @@ export default function LinksEditor({ value = [], onChange }) {
   function add() {
     onChange([
       ...value,
-      { id: `lnk_tmp_${value.length}_${value.reduce((a, l) => a + l.url.length, 0)}`, url: '', label: '', postedAt: null },
+      // Unique draft id: index/length-derived ids collide after add+remove
+      // (two rows would mirror each other and share a React key).
+      { id: makeId('lnk'), url: '', label: '', postedAt: null },
     ])
   }
   function remove(id) {
@@ -24,23 +24,24 @@ export default function LinksEditor({ value = [], onChange }) {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="stack-3">
       {value.map((l, idx) => (
-        <div key={l.id} className="rounded-xl border border-slate-800 bg-slate-900/60 p-3">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium uppercase tracking-wide text-slate-500">
+        <div key={l.id} className="card card-pad">
+          <div className="row-between">
+            <span className="section-title">
               Annonce {idx + 1}
             </span>
             <button
               type="button"
               onClick={() => remove(l.id)}
               aria-label={`Supprimer l’annonce ${idx + 1}`}
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-rose-400 active:bg-rose-500/10"
+              className="btn btn-ghost btn-icon"
+              style={{ width: 44, height: 44, color: 'var(--danger)' }}
             >
-              <IconTrash className="h-4 w-4" />
+              <IconTrash size={16} />
             </button>
           </div>
-          <div className="mt-2 space-y-2">
+          <div className="stack-2" style={{ marginTop: 8 }}>
             <input
               aria-label={`Lien de l’annonce ${idx + 1}`}
               type="text"
@@ -48,14 +49,16 @@ export default function LinksEditor({ value = [], onChange }) {
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              className={inputCls}
+              className="input"
+              style={{ height: 44 }}
               value={l.url}
               onChange={(e) => update(l.id, { url: e.target.value })}
               placeholder="https://www.linkedin.com/jobs/… ou lien de l’offre"
             />
             <input
               aria-label={`Libellé de l’annonce ${idx + 1}`}
-              className={inputCls}
+              className="input"
+              style={{ height: 44 }}
               value={l.label}
               onChange={(e) => update(l.id, { label: e.target.value })}
               placeholder="Libellé (ex. « Lead robotique — repost »)"
@@ -72,9 +75,10 @@ export default function LinksEditor({ value = [], onChange }) {
       <button
         type="button"
         onClick={add}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-dashed border-slate-700 text-sm font-medium text-slate-300 active:bg-slate-800"
+        className="btn btn-mid"
+        style={{ borderStyle: 'dashed' }}
       >
-        <IconPlus className="h-4 w-4" /> Ajouter une annonce
+        <IconPlus size={16} /> Ajouter une annonce
       </button>
     </div>
   )

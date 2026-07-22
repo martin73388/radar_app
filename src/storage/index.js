@@ -18,6 +18,8 @@ const SYNC_STATE_KEY = 'radar:sync:state' // { lastSyncedSha, lastSyncedRevision
 // Second remote (Google Drive gateway) — separate device-local keys.
 const SYNC_DRIVE_CONFIG_KEY = 'radar:sync:drive:config' // { url, secret, path }
 const SYNC_DRIVE_STATE_KEY = 'radar:sync:drive:state' // { lastSyncedVersion, lastSyncedRevision, lastSyncAt }
+// Device-local UI preference (Cockpit design system): 'system' | 'light' | 'dark'.
+const THEME_KEY = 'radar:ui:theme'
 
 // MIGRATIONS[n] migrates a vn document to v(n+1). v1 is the baseline.
 export const MIGRATIONS = {}
@@ -39,6 +41,10 @@ export function emptyDoc() {
     contacts: [],
     // Append-only log of "relance faite" events, for activity stats.
     activityLog: [],
+    // Tombstones for multi-device sync (ADDITIVE, sync/merge.js): each
+    // {id, at(epoch ms), kind:'company'|'contact'} prevents a deleted record
+    // from being resurrected by an older copy on another device.
+    deleted: [],
   }
 }
 
@@ -161,6 +167,9 @@ export function normalizeDoc(doc) {
     companies: doc.companies.map(normalizeCompany),
     contacts: doc.contacts.map(normalizeContact),
     activityLog: Array.isArray(doc.activityLog) ? doc.activityLog : [],
+    deleted: Array.isArray(doc.deleted)
+      ? doc.deleted.filter((t) => isPlainObject(t) && typeof t.id === 'string' && t.id)
+      : [],
   }
 }
 
@@ -475,24 +484,10 @@ export function saveSyncConfig(storage, config) {
   return saveJsonKey(storage, SYNC_CONFIG_KEY, config)
 }
 
-export function loadSyncState(storage) {
-  const s = loadJsonKey(storage, SYNC_STATE_KEY)
-  return {
-    lastSyncedSha: typeof s?.lastSyncedSha === 'string' ? s.lastSyncedSha : null,
-    lastSyncedRevision: Number.isInteger(s?.lastSyncedRevision)
-      ? s.lastSyncedRevision
-      : null,
-    lastSyncAt: typeof s?.lastSyncAt === 'string' ? s.lastSyncAt : null,
-  }
-}
-
-export function saveSyncState(storage, state) {
-  return saveJsonKey(storage, SYNC_STATE_KEY, state)
-}
-
 export function clearSync(storage) {
   try {
     storage.removeItem(SYNC_CONFIG_KEY)
+    // Legacy per-device sync anchor (pre-merge engine) — cleaned up on disable.
     storage.removeItem(SYNC_STATE_KEY)
   } catch {
     /* nothing to clear */
@@ -517,32 +512,34 @@ export function saveDriveSyncConfig(storage, config) {
   return saveJsonKey(storage, SYNC_DRIVE_CONFIG_KEY, config)
 }
 
-export function loadDriveSyncState(storage) {
-  const s = loadJsonKey(storage, SYNC_DRIVE_STATE_KEY)
-  return {
-    // engine field `lastSyncedSha` ← persisted `lastSyncedVersion`
-    lastSyncedSha:
-      typeof s?.lastSyncedVersion === 'string' ? s.lastSyncedVersion : null,
-    lastSyncedRevision: Number.isInteger(s?.lastSyncedRevision)
-      ? s.lastSyncedRevision
-      : null,
-    lastSyncAt: typeof s?.lastSyncAt === 'string' ? s.lastSyncAt : null,
-  }
-}
-
-export function saveDriveSyncState(storage, state) {
-  return saveJsonKey(storage, SYNC_DRIVE_STATE_KEY, {
-    lastSyncedVersion: state.lastSyncedSha ?? null,
-    lastSyncedRevision: state.lastSyncedRevision ?? null,
-    lastSyncAt: state.lastSyncAt ?? null,
-  })
-}
-
 export function clearDriveSync(storage) {
   try {
     storage.removeItem(SYNC_DRIVE_CONFIG_KEY)
+    // Legacy per-device sync anchor (pre-merge engine) — cleaned up on disable.
     storage.removeItem(SYNC_DRIVE_STATE_KEY)
   } catch {
     /* nothing to clear */
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Device-local theme preference (never part of the synced document).
+
+export function loadThemePref(storage) {
+  try {
+    const t = storage.getItem(THEME_KEY)
+    return t === 'light' || t === 'dark' ? t : 'system'
+  } catch {
+    return 'system'
+  }
+}
+
+export function saveThemePref(storage, theme) {
+  try {
+    if (theme === 'light' || theme === 'dark') storage.setItem(THEME_KEY, theme)
+    else storage.removeItem(THEME_KEY)
+    return true
+  } catch {
+    return false
   }
 }

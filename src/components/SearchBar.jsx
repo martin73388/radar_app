@@ -2,23 +2,47 @@ import { IconSearch, IconX } from '../ui/icons.jsx'
 
 export default function SearchBar({ value, onChange, placeholder }) {
   return (
-    <div className="relative">
-      <IconSearch className="pointer-events-none absolute left-3.5 top-1/2 h-5 w-5 -translate-y-1/2 text-slate-500" />
+    <div style={{ position: 'relative' }}>
+      <span
+        aria-hidden="true"
+        style={{
+          position: 'absolute',
+          left: 14,
+          top: '50%',
+          transform: 'translateY(-50%)',
+          display: 'flex',
+          pointerEvents: 'none',
+          color: 'var(--text-faint)',
+        }}
+      >
+        <IconSearch />
+      </span>
       <input
         type="search"
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-xl border border-slate-800 bg-slate-900 pl-11 pr-10 text-[15px] text-slate-100 placeholder:text-slate-500 focus:border-teal-500/60 focus:outline-none"
+        className="input"
+        style={{ height: 44, paddingLeft: 44, paddingRight: 44 }}
       />
       {value && (
         <button
           type="button"
           aria-label="Effacer la recherche"
           onClick={() => onChange('')}
-          className="absolute right-0 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full text-slate-400"
+          className="btn btn-ghost btn-icon"
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            width: 44,
+            height: 44,
+            borderRadius: '50%',
+            color: 'var(--text-muted)',
+          }}
         >
-          <IconX className="h-4 w-4" />
+          <IconX size={16} />
         </button>
       )}
     </div>

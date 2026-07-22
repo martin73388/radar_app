@@ -1,368 +1,289 @@
-// Sync engine — ARCHITECTURE.md §10bis / §10ter. Local-first: sync failures
-// never block the app; conflicts are never resolved silently.
+// Sync orchestration — ported from cockpit_app/src/sync/engine.js, adapted to
+// Radar. On every cycle (launch / visible / online / manual / debounced push)
+// we synchronise against BOTH remotes:
+//   pull GitHub -> merge ; pull Drive -> merge ; then push GitHub AND Drive.
+// Writes use compare-and-swap; a stale base -> re-pull + merge + re-push,
+// bounded by MAX_CONFLICT_RETRIES. A remote whose current file is NOT a valid
+// Radar file — or whose schemaVersion is newer than this build — is NEVER
+// merged nor overwritten ('blocked' status), on the pull path AND on the
+// conflict-retry path (fixes (a) and (b) from the Cockpit review).
 //
-// The engine is REMOTE-AGNOSTIC. By default it drives the GitHub remote
-// (config/state accessors + api below), unchanged from the original design.
-// A second instance can drive another remote (e.g. Google Drive via an Apps
-// Script gateway) by injecting its own `api`, config/state accessors and
-// validators — see src/sync/drive.js and App.jsx. Two instances sharing one
-// `lock` never run cycles concurrently, so adoptions can't race.
+// Local safety: the merged document goes through the SAME validation gate as
+// a manual import (parseImport: migration, shape, duplicate ids) before it
+// ever replaces local state, and the local write keeps the storage module's
+// revision guard (a stale tab still cannot clobber another tab).
 
-import {
-  loadSyncConfig,
-  saveSyncConfig,
-  loadSyncState,
-  saveSyncState,
-  clearSync,
-  parseImport,
-} from '../storage/index.js'
-import * as githubApi from './github.js'
-import { isValidRepo } from './github.js'
+import * as githubRemote from './github.js'
+import * as driveRemote from './drive.js'
+import { mergeStates, isRadarFile, serialize } from './merge.js'
+import { parseImport } from '../storage/index.js'
+import { ConflictError, AuthError, SyncError } from './errors.js'
 
-export { isValidRepo }
+export { isValidRepo } from './github.js'
+export { isValidDriveConfig } from './drive.js'
 
-/**
- * Pure decision core.
- * localChanged: local revision moved since last successful sync
- *   (first sync: "has any data").
- * remoteMoved: remote sha/version differs from the last synced one
- *   (first sync with an existing file: true).
- */
-export function decideSync({ remoteExists, remoteMoved, localChanged }) {
-  if (!remoteExists) return 'push'
-  if (!remoteMoved) return localChanged ? 'push' : 'noop'
-  return localChanged ? 'conflict' : 'adopt'
-}
-
-export function hasData(doc) {
-  return (
-    doc.companies.length > 0 ||
-    doc.contacts.length > 0 ||
-    doc.settings.missionEndDate != null
-  )
-}
-
-/**
- * A cross-engine serializer: pass the SAME lock to several engines so their
- * cycles run one at a time (a cycle that adopts mutates the shared local doc,
- * so overlapping cycles must never interleave).
- */
-export function createSyncLock() {
-  let tail = Promise.resolve()
-  return (fn) => {
-    const result = tail.then(() => fn())
-    tail = result.then(
-      () => {},
-      () => {},
-    )
-    return result
-  }
-}
-
+const MAX_CONFLICT_RETRIES = 4
 const PUSH_DEBOUNCE_MS = 2500
 
-// Default (GitHub) accessors — keep the original behavior byte-for-byte.
-const GH = {
-  loadConfig: (s) => loadSyncConfig(s),
-  saveConfig: (s, c) => saveSyncConfig(s, c),
-  clearConfig: (s) => clearSync(s),
-  loadState: (s) => loadSyncState(s),
-  saveState: (s, st) => saveSyncState(s, st),
-  isValidConfig: (c) => isValidRepo(c.repo),
-  normalizeConfig: (c) => ({ repo: c.repo, token: c.token, path: c.path || 'radar.json' }),
-  sameTarget: (a, b) =>
-    a.repo === b.repo && (a.path || 'radar.json') === (b.path || 'radar.json'),
+// A remote file we must not clobber: it exists, has real content, but isn't
+// ours. "Real content" means non-blank raw text OR a parsed non-null body — so
+// a gateway that returns already-parsed JSON can't slip a foreign file past us.
+function hasContent(r) {
+  if (r.raw != null) return r.raw.trim().length > 0
+  return r.content != null
+}
+function isForeign(r) {
+  return !!(r && r.exists && hasContent(r) && !isRadarFile(r.content))
 }
 
 /**
- * @param deps.storage  Storage for config/state keys
- * @param deps.api      { fetchRemoteFile, putRemoteFile } (injectable in tests / per remote)
- * @param deps.getDoc   () => current in-memory document
- * @param deps.adopt    (remoteDoc) => ({ ok, doc?, error? }) — snapshots then
- *                      replaces the local document (App wires applyImport)
- * @param deps.onState  (state) => void
- * @param deps.now      () => Date
- * @param deps.lock     shared serializer (default: run immediately)
- * @param deps.loadConfig/saveConfig/clearConfig/loadState/saveState  storage accessors
- * @param deps.isValidConfig/normalizeConfig/sameTarget  config helpers
+ * Validation gate for remote Radar content: same rules as a manual import
+ * (older schema migrated, strict shape check, duplicate ids rejected,
+ * newer schema refused). Returns { ok, doc } | { ok:false, error }.
  */
-export function createSyncEngine({
-  storage,
-  api = githubApi,
-  getDoc,
-  adopt,
-  onState,
-  now = () => new Date(),
-  lock = (fn) => fn(),
-  loadConfig = GH.loadConfig,
-  saveConfig = GH.saveConfig,
-  clearConfig = GH.clearConfig,
-  loadState = GH.loadState,
-  saveState = GH.saveState,
-  isValidConfig = GH.isValidConfig,
-  normalizeConfig = GH.normalizeConfig,
-  sameTarget = GH.sameTarget,
+function gateRemote(r) {
+  const text = typeof r.raw === 'string' && r.raw.trim() ? r.raw : JSON.stringify(r.content)
+  return parseImport(text)
+}
+
+function blockedMessage(error, content) {
+  if (error === 'newer-version') {
+    const v = content?.schemaVersion
+    return `Fichier distant d'une version plus récente de Radar${v ? ` (v${v})` : ''} — mets l'app à jour. Écriture bloquée.`
+  }
+  return 'Fichier distant invalide — écriture bloquée, rien n’a été modifié.'
+}
+
+function classify(e) {
+  if (e instanceof AuthError) return 'auth'
+  if (e instanceof ConflictError) return 'conflict'
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return 'offline'
+  if (e instanceof SyncError && e.transient) return 'offline'
+  if (e && e.blocked) return 'blocked'
+  return 'error'
+}
+
+/**
+ * @param deps.store  { getSnapshot: () => doc, replaceState: (doc) => {ok, error?} }
+ *                    replaceState MUST keep the storage revision guard.
+ * @param deps.github / deps.drive   remote modules { isConfigured, read, write }
+ * @param deps.getGithubConfig / deps.getDriveConfig  () => cfg | null
+ * @param deps.onStatus  (status) => void
+ */
+export function createEngine({
+  store,
+  github = githubRemote,
+  drive = driveRemote,
+  getGithubConfig,
+  getDriveConfig,
+  onStatus = () => {},
+  debounceMs = PUSH_DEBOUNCE_MS,
+  schedule = (fn, ms) => setTimeout(fn, ms),
+  cancel = (h) => clearTimeout(h),
 }) {
-  let state = {
-    status: loadConfig(storage) ? 'pending' : 'off',
-    errorCode: null,
-    lastSyncAt: loadState(storage).lastSyncAt,
-    conflict: null, // { remoteDoc, remoteSha }
-  }
-  let busy = false
+  let running = false
   let queued = false
-  let pushTimer = null
-  // Cancellation generation: disable()/configure() bump it so a cycle that is
-  // mid-flight when the user opts out (or reconfigures) can no longer write
-  // state or flip the status — its terminal writes become no-ops.
-  let epoch = 0
-
-  function setState(patch) {
-    state = { ...state, ...patch }
-    onState({ ...state })
+  let debounceHandle = null
+  const listeners = []
+  const status = {
+    running: false,
+    lastReason: null,
+    github: { state: 'disabled', message: '', at: null },
+    drive: { state: 'disabled', message: '', at: null },
   }
 
-  const alive = (gen) => gen === epoch
-
-  function fail(gen, errorCode) {
-    if (!alive(gen)) return
-    setState({
-      status: errorCode === 'network' ? 'offline' : 'error',
-      errorCode: errorCode === 'network' ? null : errorCode,
-    })
+  function emit() {
+    status.running = running
+    const snapshot = { ...status, github: { ...status.github }, drive: { ...status.drive } }
+    onStatus(snapshot)
+    listeners.forEach((fn) => fn(snapshot))
+  }
+  function setRemote(which, state, message = '') {
+    status[which] = { state, message, at: state === 'ok' ? Date.now() : status[which].at }
+    emit()
+  }
+  function setRemoteError(which, e) {
+    status[which] = { state: classify(e), message: e.message || String(e), at: status[which].at }
+    emit()
   }
 
-  function succeed(gen) {
-    if (!alive(gen)) return
-    setState({
-      status: 'synced',
-      errorCode: null,
-      conflict: null,
-      lastSyncAt: loadState(storage).lastSyncAt,
-    })
-  }
-
-  async function doPush(config, sha, gen) {
-    const doc = getDoc()
-    // `revision` is a device-local counter — syncing it would make every
-    // adopt dirty the file again and ping-pong commits between remotes/devices.
-    const { revision: _deviceLocal, ...payload } = doc
-    const r = await api.putRemoteFile({
-      ...config,
-      text: JSON.stringify(payload, null, 2),
-      sha: sha ?? undefined,
-      message: 'Radar sync',
-    })
-    if (!alive(gen)) return
+  // Replace the local document with a merged one — through the revision guard.
+  // Skips the write when the merge changed nothing (loop damper).
+  function applyMerged(merged, localText) {
+    if (serialize(merged) === (localText ?? serialize(store.getSnapshot()))) return
+    const r = store.replaceState(merged)
     if (!r.ok) {
-      if (r.error === 'sha-conflict') {
-        // Remote moved while we were pushing — re-run the full cycle.
-        queued = true
-        setState({ status: 'pending', errorCode: null })
-        return
+      throw new SyncError(
+        r.error === 'conflict'
+          ? 'Écriture locale refusée (autre onglet actif) — nouvel essai au prochain cycle.'
+          : 'Écriture locale impossible — synchro suspendue.',
+        { transient: r.error === 'conflict' },
+      )
+    }
+  }
+
+  // Push with compare-and-swap; on conflict re-pull, merge, retry (bounded).
+  async function pushCas(remote, cfg, baseVersion, remoteText) {
+    let base = baseVersion
+    let knownRemoteText = remoteText
+    for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt++) {
+      const text = serialize(store.getSnapshot())
+      // The remote already holds exactly this content — nothing to write.
+      if (knownRemoteText != null && knownRemoteText === text) return base
+      try {
+        const { version } = await remote.write(cfg, text, base)
+        return version
+      } catch (e) {
+        if (!(e instanceof ConflictError)) throw e
+        let remoteContent = e.content
+        let remoteVersion = e.version
+        let remoteRaw = null
+        if (remoteContent == null) {
+          const r = await remote.read(cfg)
+          if (isForeign(r)) {
+            const err = new SyncError('Conflit : le fichier distant n’est pas un fichier Radar — écriture annulée.')
+            err.blocked = true
+            throw err
+          }
+          remoteContent = r.content
+          remoteVersion = r.version
+          remoteRaw = r.raw
+        }
+        // Guard the conflict-retry path too: a Drive conflict payload can carry
+        // a foreign or newer-schema file we must never merge nor overwrite.
+        if (remoteContent != null) {
+          if (!isRadarFile(remoteContent)) {
+            const err = new SyncError('Conflit : le fichier distant n’est pas un fichier Radar — écriture annulée.')
+            err.blocked = true
+            throw err
+          }
+          const gate = gateRemote({ raw: remoteRaw, content: remoteContent })
+          if (!gate.ok) {
+            const err = new SyncError(`Conflit : ${blockedMessage(gate.error, remoteContent)}`)
+            err.blocked = true
+            throw err
+          }
+          applyMerged(mergeStates(store.getSnapshot(), gate.doc))
+        }
+        base = remoteVersion
+        knownRemoteText = remoteRaw
       }
-      fail(gen, r.error)
-      return
     }
-    saveState(storage, {
-      lastSyncedSha: r.sha,
-      lastSyncedRevision: doc.revision,
-      lastSyncAt: now().toISOString(),
-    })
-    succeed(gen)
+    throw new ConflictError('Conflit persistant après plusieurs tentatives — nouvel essai au prochain cycle.')
   }
 
-  function doAdopt(remoteDoc, remoteSha, gen) {
-    if (!alive(gen)) return
-    const res = adopt(remoteDoc)
-    if (!res.ok) {
-      fail(gen, 'local')
-      return
-    }
-    saveState(storage, {
-      lastSyncedSha: remoteSha,
-      lastSyncedRevision: res.doc.revision,
-      lastSyncAt: now().toISOString(),
-    })
-    succeed(gen)
-  }
-
-  async function cycle() {
-    const gen = epoch
-    const config = loadConfig(storage)
-    if (!config) {
-      setState({ status: 'off', conflict: null })
-      return
-    }
-    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
-      setState({ status: 'offline', errorCode: null })
-      return
-    }
-    setState({ status: 'syncing', errorCode: null })
-
-    const remote = await api.fetchRemoteFile(config)
-    if (!alive(gen)) return
-    if (!remote.ok) {
-      fail(gen, remote.error)
-      return
-    }
-
-    const syncState = loadState(storage)
-    const doc = getDoc()
-    const localChanged =
-      syncState.lastSyncedRevision == null
-        ? hasData(doc)
-        : doc.revision !== syncState.lastSyncedRevision
-    const remoteMoved = remote.exists
-      ? syncState.lastSyncedSha == null || remote.sha !== syncState.lastSyncedSha
-      : false
-    const action = decideSync({
-      remoteExists: remote.exists,
-      remoteMoved,
-      localChanged,
-    })
-
-    if (action === 'noop') {
-      succeed(gen)
-      return
-    }
-    if (action === 'push') {
-      await doPush(config, remote.exists ? remote.sha : null, gen)
-      return
-    }
-
-    // Adoption (and conflict preview) goes through the SAME strict validation
-    // as a manual import: not-JSON / not-a-Radar-doc / newer-version are all
-    // rejected — never adopt garbage from a remote.
-    const parsed = parseImport(remote.text)
-    if (!parsed.ok) {
-      fail(gen, parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
-      return
-    }
-    if (action === 'adopt') {
-      doAdopt(parsed.doc, remote.sha, gen)
-      return
-    }
-    setState({
-      status: 'conflict',
-      conflict: { remoteDoc: parsed.doc, remoteSha: remote.sha },
-    })
-  }
-
-  async function run(task) {
-    if (busy) {
-      queued = true
-      return
-    }
-    busy = true
+  // Pull one remote and merge it in. Returns { version, raw, blocked, usable }.
+  async function pullMerge(which, remote, cfg) {
+    setRemote(which, 'syncing')
     try {
-      // The shared lock serializes cycles across engines (no adoption races).
-      await lock(() => task())
+      const r = await remote.read(cfg)
+      if (isForeign(r)) {
+        setRemote(which, 'blocked', 'Le fichier distant n’est pas un fichier Radar — écriture bloquée, rien n’a été modifié.')
+        return { version: r.version, raw: null, blocked: true, usable: true }
+      }
+      if (r.exists && hasContent(r)) {
+        const gate = gateRemote(r)
+        if (!gate.ok) {
+          setRemote(which, 'blocked', blockedMessage(gate.error, r.content))
+          return { version: r.version, raw: null, blocked: true, usable: true }
+        }
+        applyMerged(mergeStates(store.getSnapshot(), gate.doc))
+      }
+      return { version: r.exists ? r.version : null, raw: r.exists ? r.raw : null, blocked: false, usable: true }
+    } catch (e) {
+      setRemoteError(which, e)
+      return { version: null, raw: null, blocked: false, usable: false }
+    }
+  }
+
+  async function runCycle() {
+    const ghCfg = getGithubConfig()
+    const drCfg = getDriveConfig()
+    const ghOn = github.isConfigured(ghCfg)
+    const drOn = drive.isConfigured(drCfg)
+
+    if (!ghOn) setRemote('github', 'disabled')
+    if (!drOn) setRemote('drive', 'disabled')
+    if (!ghOn && !drOn) return
+
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      if (ghOn) setRemote('github', 'offline')
+      if (drOn) setRemote('drive', 'offline')
+      return
+    }
+
+    // Phase 1 — pulls + merges (both remotes land in the local document).
+    let gh = { usable: false, blocked: false, version: null, raw: null }
+    let dr = { usable: false, blocked: false, version: null, raw: null }
+    if (ghOn) gh = await pullMerge('github', github, ghCfg)
+    if (drOn) dr = await pullMerge('drive', drive, drCfg)
+
+    // Phase 2 — push both (skip blocked/unusable; skip byte-identical writes).
+    if (ghOn && gh.usable && !gh.blocked) {
+      setRemote('github', 'syncing')
+      try {
+        await pushCas(github, ghCfg, gh.version, gh.raw)
+        setRemote('github', 'ok')
+      } catch (e) {
+        setRemoteError('github', e)
+      }
+    }
+    if (drOn && dr.usable && !dr.blocked) {
+      setRemote('drive', 'syncing')
+      try {
+        await pushCas(drive, drCfg, dr.version, dr.raw)
+        setRemote('drive', 'ok')
+      } catch (e) {
+        setRemoteError('drive', e)
+      }
+    }
+  }
+
+  async function sync(reason = 'manual') {
+    if (running) {
+      queued = true
+      return status
+    }
+    running = true
+    status.lastReason = reason
+    emit()
+    try {
+      await runCycle()
     } finally {
-      busy = false
+      running = false
+      emit()
       if (queued) {
         queued = false
-        run(cycle)
+        schedule(() => sync('coalesced'), 0)
       }
     }
+    return status
+  }
+
+  function scheduleSync(reason = 'change') {
+    if (debounceHandle) cancel(debounceHandle)
+    debounceHandle = schedule(() => {
+      debounceHandle = null
+      sync(reason)
+    }, debounceMs)
+  }
+
+  function stop() {
+    if (debounceHandle) cancel(debounceHandle)
+    debounceHandle = null
   }
 
   return {
-    getState: () => ({ ...state }),
-    isConfigured: () => Boolean(loadConfig(storage)),
-    getConfig: () => loadConfig(storage),
-
-    syncNow: () => run(cycle),
-
-    /** Debounced push after a local mutation. */
-    schedulePush: () => {
-      if (!loadConfig(storage)) return
-      if (state.status === 'conflict') return // blocked until resolved
-      // Nothing new to push (e.g. the doc just changed because we adopted a
-      // remote version) → don't flip to 'pending' or run a pointless cycle.
-      const syncState = loadState(storage)
-      if (
-        syncState.lastSyncedRevision != null &&
-        getDoc().revision === syncState.lastSyncedRevision
-      ) {
-        return
+    sync,
+    scheduleSync,
+    stop,
+    getStatus: () => ({ ...status, github: { ...status.github }, drive: { ...status.drive } }),
+    onStatusChange(fn) {
+      listeners.push(fn)
+      return () => {
+        const i = listeners.indexOf(fn)
+        if (i >= 0) listeners.splice(i, 1)
       }
-      setState({ status: 'pending', errorCode: null })
-      clearTimeout(pushTimer)
-      pushTimer = setTimeout(() => run(cycle), PUSH_DEBOUNCE_MS)
     },
-
-    /** Validate + store the config, then run the first sync. */
-    configure: (config) => {
-      if (!isValidConfig(config)) return false
-      const prev = loadConfig(storage)
-      const toSave = normalizeConfig(config)
-      saveConfig(storage, toSave)
-      // Only forget device state on a NEW pairing. Re-entering the same target
-      // (e.g. renewing a token/secret) keeps the sync anchor so it doesn't
-      // trigger a spurious conflict against an unchanged remote.
-      if (!prev || !sameTarget(prev, toSave)) {
-        saveState(storage, {
-          lastSyncedSha: null,
-          lastSyncedRevision: null,
-          lastSyncAt: null,
-        })
-      }
-      epoch++ // cancel any in-flight cycle from a previous config
-      run(cycle)
-      return true
-    },
-
-    /** Stop syncing; local data stays untouched. */
-    disable: () => {
-      epoch++ // cancel any in-flight cycle so it can't resurrect state
-      clearTimeout(pushTimer)
-      clearConfig(storage)
-      setState({ status: 'off', errorCode: null, conflict: null, lastSyncAt: null })
-    },
-
-    /** Conflict resolution: force-push this device's data. */
-    resolveKeepLocal: () =>
-      run(async () => {
-        const gen = epoch
-        if (!state.conflict) return
-        const config = loadConfig(storage)
-        if (!config) return
-        setState({ status: 'syncing', conflict: null })
-        const remote = await api.fetchRemoteFile(config) // fresh sha for CAS
-        if (!alive(gen)) return
-        if (!remote.ok) {
-          fail(gen, remote.error)
-          return
-        }
-        await doPush(config, remote.exists ? remote.sha : null, gen)
-      }),
-
-    /** Conflict resolution: adopt the remote version (snapshot first). */
-    resolveTakeRemote: () =>
-      run(async () => {
-        const gen = epoch
-        if (!state.conflict) return
-        const config = loadConfig(storage)
-        if (!config) return
-        setState({ status: 'syncing', conflict: null })
-        const remote = await api.fetchRemoteFile(config) // may have moved again
-        if (!alive(gen)) return
-        if (!remote.ok) {
-          fail(gen, remote.error)
-          return
-        }
-        if (!remote.exists) {
-          // Nothing remote anymore — push local instead.
-          await doPush(config, null, gen)
-          return
-        }
-        const parsed = parseImport(remote.text)
-        if (!parsed.ok) {
-          fail(gen, parsed.error === 'newer-version' ? 'newer-version' : 'remote-invalid')
-          return
-        }
-        doAdopt(parsed.doc, remote.sha, gen)
-      }),
   }
 }

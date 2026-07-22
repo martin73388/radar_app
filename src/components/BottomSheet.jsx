@@ -25,24 +25,16 @@ export default function BottomSheet({ open, onClose, title, children }) {
   if (!open) return null
 
   return createPortal(
-    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={title}>
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="absolute inset-x-0 bottom-0 mx-auto flex max-h-[88dvh] w-full max-w-md flex-col rounded-t-3xl border-t border-slate-700/60 bg-slate-900 shadow-2xl">
-        <div className="flex items-center justify-between px-5 pt-3 pb-1">
-          <div className="absolute left-1/2 top-2 h-1 w-10 -translate-x-1/2 rounded-full bg-slate-700" />
-          <h2 className="pt-2 text-base font-semibold text-slate-100">{title}</h2>
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Fermer"
-            className="-mr-2 flex h-11 w-11 items-center justify-center rounded-full text-slate-400 active:bg-slate-800"
-          >
+    <div role="dialog" aria-modal="true" aria-label={title}>
+      <div className="sheet-backdrop" onClick={onClose} />
+      <div className="sheet">
+        <div className="sheet-header">
+          <h2>{title}</h2>
+          <button type="button" onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-icon">
             <IconX />
           </button>
         </div>
-        <div className="overflow-y-auto px-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">
-          {children}
-        </div>
+        <div className="sheet-body">{children}</div>
       </div>
     </div>,
     document.body,

@@ -62,9 +62,12 @@ jeton).
 
 Ensuite c'est automatique : envoi après chaque modification, récupération à
 l'ouverture de l'app. La pastille à côté de ⚙️ indique l'état (vert = à
-jour, orange = en cours, rouge = conflit ou erreur — ouvre ⚙️ pour le
-détail). En cas de modification des deux côtés en même temps, Radar te fait
-choisir la version à garder — jamais de fusion silencieuse.
+jour, orange = en cours, rouge = erreur — ouvre ⚙️ pour le détail). En cas
+de modification des deux côtés en même temps, Radar **fusionne** : pour
+chaque fiche c'est la version modifiée en dernier qui gagne, les notes de
+suivi des deux appareils sont conservées, et une suppression n'est jamais
+« ressuscitée » par un vieil appareil. Rien n'est perdu ; un fichier
+distant qui n'est pas un fichier Radar n'est jamais écrasé.
 
 > iPhone (au cas où) : installe **avant** de saisir des données
 > (Safari → Partager → « Sur l'écran d'accueil »), car l'onglet Safari et

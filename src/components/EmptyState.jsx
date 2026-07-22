@@ -1,9 +1,22 @@
 export default function EmptyState({ icon, title, hint }) {
   return (
-    <div className="flex flex-col items-center gap-2 px-6 py-14 text-center">
-      <div className="text-slate-600">{icon}</div>
-      <p className="text-[15px] font-medium text-slate-300">{title}</p>
-      {hint && <p className="text-sm leading-relaxed text-slate-500">{hint}</p>}
+    <div
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 8,
+        padding: '56px 24px',
+        textAlign: 'center',
+      }}
+    >
+      <div className="faint">{icon}</div>
+      <p style={{ fontWeight: 500 }}>{title}</p>
+      {hint && (
+        <p className="small muted" style={{ lineHeight: 1.6 }}>
+          {hint}
+        </p>
+      )}
     </div>
   )
 }

@@ -1,53 +1,51 @@
 import { describe, it, expect } from 'vitest'
-import { syncStatusLabel, syncDotClass, combineSyncStatus } from './labels.js'
+import { syncStatusLabel, syncDotClass, combineSyncState } from './labels.js'
 
 describe('syncStatusLabel', () => {
-  it('describes the common statuses in French', () => {
-    expect(syncStatusLabel({ status: 'off' })).toBe('Désactivée')
-    expect(syncStatusLabel({ status: 'syncing' })).toBe('Synchronisation…')
-    expect(syncStatusLabel({ status: 'pending' })).toBe('Modifications en attente d’envoi')
-    expect(syncStatusLabel({ status: 'synced', lastSyncAt: null })).toBe('À jour')
-    expect(syncStatusLabel({ status: 'offline' })).toContain('Hors ligne')
-    expect(syncStatusLabel({ status: 'conflict' })).toContain('Conflit')
+  it('describes the engine states in French', () => {
+    expect(syncStatusLabel({ state: 'disabled' })).toBe('Désactivée')
+    expect(syncStatusLabel({ state: 'syncing' })).toBe('Synchronisation…')
+    expect(syncStatusLabel({ state: 'ok', at: null })).toBe('À jour')
+    expect(syncStatusLabel({ state: 'ok', at: Date.now() })).toContain('À jour')
+    expect(syncStatusLabel({ state: 'offline' })).toContain('Hors ligne')
+    expect(syncStatusLabel({ state: 'conflict' })).toContain('Conflit')
   })
 
-  it('picks remote-specific wording for auth/api errors, defaulting to GitHub', () => {
-    const auth = { status: 'error', errorCode: 'auth' }
-    expect(syncStatusLabel(auth)).toContain('Jeton') // default = github
+  it('picks remote-specific wording for auth, defaulting to GitHub', () => {
+    const auth = { state: 'auth' }
+    expect(syncStatusLabel(auth)).toContain('Jeton')
     expect(syncStatusLabel(auth, 'github')).toContain('Jeton')
     expect(syncStatusLabel(auth, 'drive')).toContain('Secret')
-
-    const api = { status: 'error', errorCode: 'api' }
-    expect(syncStatusLabel(api, 'github')).toContain('GitHub')
-    expect(syncStatusLabel(api, 'drive')).toContain('passerelle Drive')
   })
 
-  it('uses shared wording for remote-agnostic errors', () => {
-    const invalid = { status: 'error', errorCode: 'remote-invalid' }
-    expect(syncStatusLabel(invalid, 'github')).toBe(syncStatusLabel(invalid, 'drive'))
-    const newer = { status: 'error', errorCode: 'newer-version' }
-    expect(syncStatusLabel(newer, 'drive')).toContain('plus récente')
+  it('surfaces the engine message for blocked and error states', () => {
+    expect(syncStatusLabel({ state: 'blocked', message: 'Fichier distant invalide.' })).toBe(
+      'Fichier distant invalide.',
+    )
+    expect(syncStatusLabel({ state: 'error', message: 'GitHub PUT 500' })).toBe('GitHub PUT 500')
+    expect(syncStatusLabel({ state: 'blocked' })).toContain('bloquée')
   })
 })
 
-describe('combineSyncStatus (single ⚙️ dot for two remotes)', () => {
-  it('surfaces the most attention-needing status', () => {
-    expect(combineSyncStatus('synced', 'conflict')).toBe('conflict')
-    expect(combineSyncStatus('error', 'synced')).toBe('error')
-    expect(combineSyncStatus('synced', 'pending')).toBe('pending')
-    expect(combineSyncStatus('offline', 'synced')).toBe('offline')
-    expect(combineSyncStatus('conflict', 'error')).toBe('conflict')
+describe('combineSyncState (single ⚙️ dot for two remotes)', () => {
+  it('surfaces the most attention-needing state', () => {
+    expect(combineSyncState('ok', 'auth')).toBe('auth')
+    expect(combineSyncState('blocked', 'ok')).toBe('blocked')
+    expect(combineSyncState('ok', 'syncing')).toBe('syncing')
+    expect(combineSyncState('offline', 'ok')).toBe('offline')
+    expect(combineSyncState('error', 'syncing')).toBe('error')
   })
 
-  it('ignores an unconfigured (off) remote so the active one shows through', () => {
-    expect(combineSyncStatus('off', 'synced')).toBe('synced')
-    expect(combineSyncStatus('synced', 'off')).toBe('synced')
-    expect(combineSyncStatus('off', 'off')).toBe('off')
-    expect(combineSyncStatus('off', 'pending')).toBe('pending')
+  it('ignores a disabled remote so the active one shows through', () => {
+    expect(combineSyncState('disabled', 'ok')).toBe('ok')
+    expect(combineSyncState('ok', 'disabled')).toBe('ok')
+    expect(combineSyncState('disabled', 'disabled')).toBe('disabled')
   })
 
   it('produces a dot class consistent with the worse remote', () => {
-    expect(syncDotClass(combineSyncStatus('synced', 'error'))).toBe('bg-rose-400')
-    expect(syncDotClass(combineSyncStatus('off', 'off'))).toBeNull()
+    expect(syncDotClass(combineSyncState('ok', 'error'))).toBe('sync-dot-bad')
+    expect(syncDotClass(combineSyncState('disabled', 'disabled'))).toBeNull()
+    expect(syncDotClass('ok')).toBe('sync-dot-ok')
+    expect(syncDotClass('syncing')).toBe('sync-dot-busy')
   })
 })

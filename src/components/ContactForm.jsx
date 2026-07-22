@@ -5,9 +5,6 @@ import DateField from './DateField.jsx'
 import HistoryTimeline from './HistoryTimeline.jsx'
 import { IconTrash } from '../ui/icons.jsx'
 
-const inputCls =
-  'h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none'
-
 /**
  * Add/edit contact form. Company: link to a record (select) OR free text —
  * validated by Martin (Phase 1).
@@ -63,14 +60,14 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
   }
 
   return (
-    <form onSubmit={submit} className="space-y-4 pt-2">
+    <form onSubmit={submit} className="stack-3" style={{ paddingTop: 8 }}>
       <div>
-        <label htmlFor="cnt-name" className="mb-1 block text-sm font-medium text-slate-300">
+        <label htmlFor="cnt-name" className="label">
           Nom *
         </label>
         <input
           id="cnt-name"
-          className={inputCls}
+          className="input"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Jane Doe"
@@ -79,12 +76,12 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       </div>
 
       <div>
-        <label htmlFor="cnt-company" className="mb-1 block text-sm font-medium text-slate-300">
+        <label htmlFor="cnt-company" className="label">
           Entreprise
         </label>
         <select
           id="cnt-company"
-          className={inputCls}
+          className="select"
           value={companyId}
           onChange={(e) => setCompanyId(e.target.value)}
         >
@@ -98,7 +95,8 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
         {!companyId && (
           <input
             aria-label="Entreprise (texte libre)"
-            className={`${inputCls} mt-2`}
+            className="input"
+            style={{ marginTop: 8 }}
             value={companyName}
             onChange={(e) => setCompanyName(e.target.value)}
             placeholder="…ou saisis un nom en texte libre"
@@ -107,12 +105,12 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       </div>
 
       <div>
-        <label htmlFor="cnt-role" className="mb-1 block text-sm font-medium text-slate-300">
+        <label htmlFor="cnt-role" className="label">
           Rôle
         </label>
         <input
           id="cnt-role"
-          className={inputCls}
+          className="input"
           value={role}
           onChange={(e) => setRole(e.target.value)}
           placeholder="CTO, recruteuse, lead robotique…"
@@ -120,7 +118,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       </div>
 
       <div>
-        <label htmlFor="cnt-linkedin" className="mb-1 block text-sm font-medium text-slate-300">
+        <label htmlFor="cnt-linkedin" className="label">
           LinkedIn
         </label>
         <input
@@ -130,7 +128,7 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
-          className={inputCls}
+          className="input"
           value={linkedin}
           onChange={(e) => setLinkedin(e.target.value)}
           placeholder="https://www.linkedin.com/in/…"
@@ -151,30 +149,27 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
       />
 
       <div>
-        <label htmlFor="cnt-notes" className="mb-1 block text-sm font-medium text-slate-300">
+        <label htmlFor="cnt-notes" className="label">
           Notes
         </label>
         <textarea
           id="cnt-notes"
           rows={3}
-          className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none"
+          className="textarea"
           value={notes}
           onChange={(e) => setNotes(e.target.value)}
           placeholder="Où vous vous êtes parlé, sujets, ton…"
         />
       </div>
 
-      <button
-        type="submit"
-        className="h-12 w-full rounded-xl bg-teal-500 text-[15px] font-semibold text-slate-950 active:bg-teal-400"
-      >
+      <button type="submit" className="btn btn-primary btn-tall">
         {editing ? 'Enregistrer' : 'Ajouter le contact'}
       </button>
 
       {editing && (
         <div>
-          <span className="mb-1 block text-sm font-medium text-slate-300">Suivi</span>
-          <p className="mb-2 text-xs text-slate-500">
+          <span className="label">Suivi</span>
+          <p className="faint tiny" style={{ marginBottom: 8 }}>
             Historique horodaté (notes + relances). Les notes sont enregistrées
             immédiatement.
           </p>
@@ -189,9 +184,9 @@ export default function ContactForm({ contact, onSave, onDelete, onClose, onDirt
         <button
           type="button"
           onClick={() => setConfirmDelete(true)}
-          className="flex h-11 w-full items-center justify-center gap-2 rounded-xl text-sm font-medium text-rose-400 active:bg-rose-500/10"
+          className="btn btn-danger btn-mid"
         >
-          <IconTrash className="h-4 w-4" /> Supprimer le contact
+          <IconTrash size={16} /> Supprimer le contact
         </button>
       )}
 

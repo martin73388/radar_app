@@ -25,30 +25,29 @@ export default function ReschedulePrompt({ contact, onPick, onClose }) {
   return (
     <BottomSheet open={open} onClose={onClose} title="Relance notée ✅">
       {open && (
-        <div className="space-y-4 pt-1">
-          <p className="text-sm text-slate-400">
+        <div className="stack-3" style={{ paddingTop: 4 }}>
+          <p className="muted small">
             Prochaine relance pour{' '}
-            <span className="font-medium text-slate-200">{contact.name}</span> ?
+            <span style={{ fontWeight: 600, color: 'var(--text)' }}>{contact.name}</span> ?
           </p>
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid-3">
             {rescheduleOptions(today).map((opt) => (
               <button
                 key={opt.offset}
                 type="button"
                 onClick={() => onPick(opt.date)}
-                className="flex h-16 flex-col items-center justify-center rounded-xl border border-teal-500/30 bg-teal-500/10 active:bg-teal-500/20"
+                className="btn"
+                style={{ height: 64, flexDirection: 'column', gap: 2, padding: 0 }}
               >
-                <span className="text-[15px] font-semibold text-teal-300">
-                  +{opt.offset} j
-                </span>
-                <span className="font-mono text-xs tabular-nums text-slate-400">
+                <span style={{ color: 'var(--primary)' }}>+{opt.offset} j</span>
+                <span className="muted tiny mono-nums">
                   {formatFR(opt.date).slice(0, 5)}
                 </span>
               </button>
             ))}
           </div>
-          <div className="flex items-end gap-2">
-            <div className="min-w-0 flex-1">
+          <div className="row" style={{ alignItems: 'flex-end' }}>
+            <div className="flex-1">
               <DateField
                 id="resched-custom"
                 label="Ou une date précise"
@@ -61,23 +60,21 @@ export default function ReschedulePrompt({ contact, onPick, onClose }) {
               type="button"
               disabled={!custom || custom < minDate}
               onClick={() => custom && custom >= minDate && onPick(custom)}
-              className="h-11 shrink-0 rounded-xl bg-teal-500 px-4 text-sm font-semibold text-slate-950 disabled:opacity-40"
+              className="btn btn-primary"
+              style={{ height: 44, flex: 'none' }}
             >
               OK
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => onPick(null)}
-            className="h-11 w-full rounded-xl bg-slate-800 text-sm font-medium text-slate-300 active:bg-slate-700"
-          >
+          <button type="button" onClick={() => onPick(null)} className="btn btn-mid">
             Pas de prochaine relance
           </button>
           {contact.nextFollowUp && (
             <button
               type="button"
               onClick={onClose}
-              className="h-11 w-full rounded-xl text-sm text-slate-500"
+              className="btn btn-ghost btn-mid"
+              style={{ color: 'var(--text-muted)', fontWeight: 500 }}
             >
               Garder la date actuelle ({formatFR(contact.nextFollowUp)})
             </button>

@@ -8,12 +8,8 @@ const TABS = [
 
 export default function TabBar({ tab, onChange, dueCount = 0 }) {
   return (
-    <nav
-      className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-800 bg-slate-950/95 backdrop-blur"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      aria-label="Navigation principale"
-    >
-      <div className="mx-auto flex max-w-md">
+    <nav className="tab-bar" aria-label="Navigation principale">
+      <div className="tab-bar-inner">
         {TABS.map(({ key, label, Icon }) => {
           const active = tab === key
           const badge = key === 'contacts' && dueCount > 0 ? dueCount : null
@@ -23,24 +19,17 @@ export default function TabBar({ tab, onChange, dueCount = 0 }) {
               type="button"
               onClick={() => onChange(key)}
               aria-current={active ? 'page' : undefined}
-              className={`relative flex h-16 flex-1 flex-col items-center justify-center gap-1 text-[11px] font-medium ${
-                active ? 'text-teal-400' : 'text-slate-500 active:text-slate-300'
-              }`}
+              className="tab-item"
             >
-              <span className="relative">
-                <Icon className="h-6 w-6" />
-                {badge != null && (
-                  <span
-                    aria-hidden="true"
-                    className="absolute -right-2.5 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-bold leading-none text-white"
-                  >
-                    {badge > 9 ? '9+' : badge}
-                  </span>
-                )}
-              </span>
+              <Icon size={24} />
               {label}
               {badge != null && (
-                <span className="sr-only">{badge} relances dues</span>
+                <>
+                  <span aria-hidden="true" className="tab-badge">
+                    {badge > 9 ? '9+' : badge}
+                  </span>
+                  <span className="sr-only">{badge} relances dues</span>
+                </>
               )}
             </button>
           )

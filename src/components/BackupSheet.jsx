@@ -2,13 +2,20 @@ import { useRef, useState } from 'react'
 import BottomSheet from './BottomSheet.jsx'
 import ConfirmDialog from './ConfirmDialog.jsx'
 import { useRadar } from '../state/radar.js'
-import { exportJSON, parseImport } from '../storage/index.js'
+import {
+  exportJSON,
+  parseImport,
+  saveSyncConfig,
+  clearSync,
+  saveDriveSyncConfig,
+  clearDriveSync,
+} from '../storage/index.js'
 import { downloadText } from '../lib/download.js'
 import { copyText } from '../lib/clipboard.js'
 import { formatFR, todayLocal } from '../lib/dates.js'
-import { isValidRepo } from '../sync/engine.js'
-import { isValidDriveConfig } from '../sync/drive.js'
+import { isValidRepo, isValidDriveConfig } from '../sync/engine.js'
 import { syncStatusLabel } from '../sync/labels.js'
+import { IconDownload, IconUpload, IconCopy } from '../ui/icons.jsx'
 
 const UNDO_ERRORS = {
   conflict:
@@ -16,7 +23,6 @@ const UNDO_ERRORS = {
   'read-only': 'Lecture seule — annulation impossible.',
   'write-failed': 'Impossible de restaurer (stockage indisponible ?).',
 }
-import { IconDownload, IconUpload, IconCopy } from '../ui/icons.jsx'
 
 const IMPORT_ERRORS = {
   empty: 'Le fichier est vide.',
@@ -30,39 +36,43 @@ const IMPORT_ERRORS = {
     'Sauvegarde invalide (identifiants dupliqués) — tes données n’ont pas été modifiées.',
 }
 
-const syncInputCls =
-  'h-11 w-full rounded-xl border border-slate-800 bg-slate-950 px-3 text-[15px] text-slate-100 placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none'
+const THEMES = [
+  { key: 'system', label: 'Système' },
+  { key: 'light', label: 'Clair' },
+  { key: 'dark', label: 'Sombre' },
+]
 
-/** Sauvegarde: the §5 export/import APIs + §10bis sync, from the TABLEAU ⚙️. */
+/** Sauvegarde: export/import + the two sync remotes + theme, from the ⚙️. */
 export default function BackupSheet({ open, onClose }) {
-  const {
-    doc,
-    actions,
-    readOnly,
-    showToast,
-    syncState,
-    syncEngine,
-    driveSyncState,
-    driveSyncEngine,
-  } = useRadar()
+  const { doc, actions, readOnly, showToast, syncStatus, syncEngine, theme, setTheme } =
+    useRadar()
   const fileRef = useRef(null)
   const [pasted, setPasted] = useState('')
   const [importError, setImportError] = useState(null)
   const [pending, setPending] = useState(null) // parsed import awaiting confirm
-  const [repoInput, setRepoInput] = useState(() => syncEngine.getConfig()?.repo ?? '')
+  const [ghConfigured, setGhConfigured] = useState(
+    () => syncStatus.github.state !== 'disabled',
+  )
+  const [drConfigured, setDrConfigured] = useState(
+    () => syncStatus.drive.state !== 'disabled',
+  )
+  const [repoInput, setRepoInput] = useState('')
   const [tokenInput, setTokenInput] = useState('')
   const [syncError, setSyncError] = useState(null)
-  const [driveUrlInput, setDriveUrlInput] = useState(
-    () => driveSyncEngine.getConfig()?.url ?? '',
-  )
+  const [driveUrlInput, setDriveUrlInput] = useState('')
   const [driveSecretInput, setDriveSecretInput] = useState('')
   const [driveError, setDriveError] = useState(null)
+
+  // The engine reads configs straight from storage on each cycle; the two
+  // *Configured flags only drive which form this sheet shows.
+  const ghOn = ghConfigured || syncStatus.github.state !== 'disabled'
+  const drOn = drConfigured || syncStatus.drive.state !== 'disabled'
 
   function activateSync() {
     const repo = repoInput.trim()
     const token = tokenInput.trim()
     if (!isValidRepo(repo)) {
-      setSyncError('Format attendu : utilisateur/dépôt (ex. martin73388/radar-data)')
+      setSyncError('Format attendu : utilisateur/dépôt (ex. martin73388/radar_core)')
       return
     }
     if (!token) {
@@ -71,13 +81,17 @@ export default function BackupSheet({ open, onClose }) {
     }
     setSyncError(null)
     setTokenInput('')
-    syncEngine.configure({ repo, token })
-    showToast({ message: 'Synchro activée — première synchronisation…' })
+    saveSyncConfig(window.localStorage, { repo, token, path: 'radar.json' })
+    setGhConfigured(true)
+    syncEngine.sync('configure')
+    showToast({ message: 'Synchro GitHub activée — première synchronisation…' })
   }
 
   function disableSync() {
-    syncEngine.disable()
-    showToast({ message: 'Synchro désactivée — tes données locales sont conservées.' })
+    clearSync(window.localStorage)
+    setGhConfigured(false)
+    syncEngine.sync('disable') // refreshes the status to 'disabled'
+    showToast({ message: 'Synchro GitHub désactivée — tes données locales sont conservées.' })
   }
 
   function activateDriveSync() {
@@ -93,12 +107,16 @@ export default function BackupSheet({ open, onClose }) {
     }
     setDriveError(null)
     setDriveSecretInput('')
-    driveSyncEngine.configure({ url, secret })
+    saveDriveSyncConfig(window.localStorage, { url, secret, path: 'radar.json' })
+    setDrConfigured(true)
+    syncEngine.sync('configure')
     showToast({ message: 'Synchro Drive activée — première synchronisation…' })
   }
 
   function disableDriveSync() {
-    driveSyncEngine.disable()
+    clearDriveSync(window.localStorage)
+    setDrConfigured(false)
+    syncEngine.sync('disable')
     showToast({ message: 'Synchro Drive désactivée — tes données locales sont conservées.' })
   }
 
@@ -169,134 +187,125 @@ export default function BackupSheet({ open, onClose }) {
   const lastExport = doc.settings.lastExportAt
 
   return (
-    <BottomSheet open={open} onClose={onClose} title="Sauvegarde">
-      <div className="space-y-6 pt-1">
+    <BottomSheet open={open} onClose={onClose} title="Sauvegarde & réglages">
+      <div className="stack-5" style={{ paddingTop: 4 }}>
         <section>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Exporter
-          </h3>
-          <p className="mt-1 text-sm leading-relaxed text-slate-400">
-            Tes données ne vivent que sur cet appareil. Exporte régulièrement
-            une copie de secours.
+          <h3 className="section-title">Thème</h3>
+          <div className="segmented" style={{ marginTop: 10 }} role="group" aria-label="Thème">
+            {THEMES.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                aria-pressed={theme === t.key}
+                onClick={() => setTheme(t.key)}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section>
+          <h3 className="section-title">Exporter</h3>
+          <p className="muted small" style={{ marginTop: 4 }}>
+            Exporte régulièrement une copie de secours de tes données.
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={doExportDownload}
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
-            >
-              <IconDownload className="h-5 w-5" /> Télécharger
+          <div className="grid-2" style={{ marginTop: 12 }}>
+            <button type="button" onClick={doExportDownload} className="btn btn-primary btn-tall">
+              <IconDownload /> Télécharger
             </button>
-            <button
-              type="button"
-              onClick={doExportCopy}
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-slate-800 text-sm font-medium text-slate-200 active:bg-slate-700"
-            >
-              <IconCopy className="h-5 w-5" /> Copier
+            <button type="button" onClick={doExportCopy} className="btn btn-tall">
+              <IconCopy /> Copier
             </button>
           </div>
-          <p className="mt-2 font-mono text-xs tabular-nums text-slate-500">
+          <p className="faint tiny mono-nums" style={{ marginTop: 8 }}>
             Dernier export :{' '}
             {lastExport ? formatFR(todayLocal(new Date(lastExport))) : 'jamais'}
           </p>
         </section>
 
         <section>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Importer
-          </h3>
+          <h3 className="section-title">Importer</h3>
           {readOnly ? (
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="muted small" style={{ marginTop: 4 }}>
               Lecture seule — mets d’abord l’app à jour (ferme et rouvre-la).
             </p>
           ) : (
             <>
-              <div className="mt-3 space-y-2">
+              <div className="stack-2" style={{ marginTop: 12 }}>
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-950 text-sm font-medium text-slate-200 active:bg-slate-800"
+                  className="btn btn-tall"
                 >
-                  <IconUpload className="h-5 w-5" /> Choisir un fichier…
+                  <IconUpload /> Choisir un fichier…
                 </button>
                 <input
                   ref={fileRef}
                   type="file"
                   accept=".json,application/json"
                   onChange={onFile}
-                  className="hidden"
+                  className="sr-only"
                 />
                 <textarea
                   rows={3}
                   value={pasted}
                   onChange={(e) => setPasted(e.target.value)}
                   placeholder="…ou colle ici le contenu d’une sauvegarde"
-                  className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200 placeholder:font-sans placeholder:text-sm placeholder:text-slate-600 focus:border-teal-500/60 focus:outline-none"
+                  className="textarea"
                 />
                 {pasted.trim() && (
                   <button
                     type="button"
                     onClick={() => receiveText(pasted)}
-                    className="h-11 w-full rounded-xl bg-slate-800 text-sm font-medium text-slate-200 active:bg-slate-700"
+                    className="btn btn-mid"
                   >
                     Vérifier et importer
                   </button>
                 )}
               </div>
               {importError && (
-                <p className="mt-2 text-sm font-medium text-rose-300">{importError}</p>
+                <p className="danger-text" style={{ marginTop: 8 }}>{importError}</p>
               )}
             </>
           )}
         </section>
 
         <section>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Synchronisation (téléphone ↔ iPad)
-          </h3>
-          {syncEngine.isConfigured() ? (
+          <h3 className="section-title">Synchronisation GitHub (téléphone ↔ iPad)</h3>
+          {ghOn ? (
             <>
-              <p className="mt-1 text-sm leading-relaxed text-slate-400">
-                Dépôt privé :{' '}
-                <span className="font-mono text-xs text-slate-300">
-                  {syncEngine.getConfig()?.repo}
-                </span>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                {syncStatusLabel(syncStatus.github, 'github')}
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-300">
-                {syncStatusLabel(syncState)}
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="grid-2" style={{ marginTop: 12 }}>
                 <button
                   type="button"
-                  onClick={() => syncEngine.syncNow()}
-                  className="h-12 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                  onClick={() => syncEngine.sync('manual')}
+                  className="btn btn-primary btn-tall"
                 >
                   Synchroniser maintenant
                 </button>
-                <button
-                  type="button"
-                  onClick={disableSync}
-                  className="h-12 rounded-xl bg-slate-800 text-sm font-medium text-slate-300 active:bg-slate-700"
-                >
+                <button type="button" onClick={disableSync} className="btn btn-tall">
                   Désactiver
                 </button>
               </div>
             </>
           ) : (
             <>
-              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+              <p className="muted small" style={{ marginTop: 4 }}>
                 Partage tes données entre appareils via un{' '}
                 <strong>dépôt GitHub privé</strong> que tu possèdes. Le jeton
-                reste sur cet appareil — jamais dans le code de l’app. (Guide de
-                création du dépôt et du jeton dans le README.)
+                reste sur cet appareil — jamais dans le code de l’app. (Guide
+                dans le README.)
               </p>
-              <div className="mt-3 space-y-2">
+              <div className="stack-2" style={{ marginTop: 12 }}>
                 <input
                   aria-label="Dépôt privé GitHub"
-                  className={syncInputCls}
+                  className="input"
                   value={repoInput}
                   onChange={(e) => setRepoInput(e.target.value)}
-                  placeholder="utilisateur/dépôt (ex. martin73388/radar-data)"
+                  placeholder="utilisateur/dépôt (ex. martin73388/radar_core)"
                   autoCapitalize="none"
                   autoCorrect="off"
                   autoComplete="off"
@@ -305,7 +314,7 @@ export default function BackupSheet({ open, onClose }) {
                 <input
                   aria-label="Jeton d’accès GitHub"
                   type="password"
-                  className={syncInputCls}
+                  className="input"
                   value={tokenInput}
                   onChange={(e) => setTokenInput(e.target.value)}
                   placeholder="github_pat_…"
@@ -316,66 +325,47 @@ export default function BackupSheet({ open, onClose }) {
                   data-1p-ignore
                   data-lpignore="true"
                 />
-                <button
-                  type="button"
-                  onClick={activateSync}
-                  className="h-12 w-full rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
-                >
+                <button type="button" onClick={activateSync} className="btn btn-primary btn-tall">
                   Activer la synchro
                 </button>
-                {syncError && (
-                  <p className="text-sm font-medium text-rose-300">{syncError}</p>
-                )}
+                {syncError && <p className="danger-text">{syncError}</p>}
               </div>
             </>
           )}
         </section>
 
         <section>
-          <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Synchronisation Drive (Cockpit)
-          </h3>
-          {driveSyncEngine.isConfigured() ? (
+          <h3 className="section-title">Synchronisation Drive (Cockpit)</h3>
+          {drOn ? (
             <>
-              <p className="mt-1 text-sm leading-relaxed text-slate-400">
-                Passerelle :{' '}
-                <span className="font-mono text-xs text-slate-300 break-all">
-                  {driveSyncEngine.getConfig()?.url}
-                </span>
+              <p className="muted small" style={{ marginTop: 4 }}>
+                {syncStatusLabel(syncStatus.drive, 'drive')}
               </p>
-              <p className="mt-1 text-sm font-medium text-slate-300">
-                {syncStatusLabel(driveSyncState, 'drive')}
-              </p>
-              <div className="mt-3 grid grid-cols-2 gap-2">
+              <div className="grid-2" style={{ marginTop: 12 }}>
                 <button
                   type="button"
-                  onClick={() => driveSyncEngine.syncNow()}
-                  className="h-12 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                  onClick={() => syncEngine.sync('manual')}
+                  className="btn btn-primary btn-tall"
                 >
                   Synchroniser maintenant
                 </button>
-                <button
-                  type="button"
-                  onClick={disableDriveSync}
-                  className="h-12 rounded-xl bg-slate-800 text-sm font-medium text-slate-300 active:bg-slate-700"
-                >
+                <button type="button" onClick={disableDriveSync} className="btn btn-tall">
                   Désactiver
                 </button>
               </div>
             </>
           ) : (
             <>
-              <p className="mt-1 text-sm leading-relaxed text-slate-400">
+              <p className="muted small" style={{ marginTop: 4 }}>
                 Synchronise aussi vers <strong>Google Drive</strong> via ta
-                passerelle Apps Script (le Cockpit). Colle l’URL du déploiement
-                « Web App » et son secret partagé — ils restent sur cet appareil,
-                jamais dans le code. GitHub reste actif en parallèle : Drive
-                s’ajoute, il ne remplace rien.
+                passerelle Apps Script (le Cockpit). L’URL et le secret restent
+                sur cet appareil — jamais dans le code. GitHub reste actif en
+                parallèle : Drive s’ajoute, il ne remplace rien.
               </p>
-              <div className="mt-3 space-y-2">
+              <div className="stack-2" style={{ marginTop: 12 }}>
                 <input
                   aria-label="URL de la passerelle Drive"
-                  className={syncInputCls}
+                  className="input"
                   value={driveUrlInput}
                   onChange={(e) => setDriveUrlInput(e.target.value)}
                   placeholder="https://script.google.com/macros/s/…/exec"
@@ -388,7 +378,7 @@ export default function BackupSheet({ open, onClose }) {
                 <input
                   aria-label="Secret de la passerelle Drive"
                   type="password"
-                  className={syncInputCls}
+                  className="input"
                   value={driveSecretInput}
                   onChange={(e) => setDriveSecretInput(e.target.value)}
                   placeholder="secret partagé"
@@ -402,13 +392,11 @@ export default function BackupSheet({ open, onClose }) {
                 <button
                   type="button"
                   onClick={activateDriveSync}
-                  className="h-12 w-full rounded-xl bg-teal-500 text-sm font-semibold text-slate-950 active:bg-teal-400"
+                  className="btn btn-primary btn-tall"
                 >
                   Activer la synchro Drive
                 </button>
-                {driveError && (
-                  <p className="text-sm font-medium text-rose-300">{driveError}</p>
-                )}
+                {driveError && <p className="danger-text">{driveError}</p>}
               </div>
             </>
           )}

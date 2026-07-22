@@ -18,7 +18,7 @@ import BackupSheet from '../components/BackupSheet.jsx'
 import ReschedulePrompt from '../components/ReschedulePrompt.jsx'
 import OnboardingChecklist from '../components/OnboardingChecklist.jsx'
 import { followUpBadge } from '../components/ContactCard.jsx'
-import { syncDotClass, combineSyncStatus } from '../sync/labels.js'
+import { syncDotClass, combineSyncState } from '../sync/labels.js'
 import StatsSheet from '../components/StatsSheet.jsx'
 import { IconGear, IconCopy, IconCheck, IconShare, IconCalendar, IconChart } from '../ui/icons.jsx'
 
@@ -30,35 +30,31 @@ function MissionCard({ onEdit }) {
       <button
         type="button"
         onClick={onEdit}
-        className="flex w-full items-center gap-3 rounded-2xl border border-dashed border-slate-700 bg-slate-900/60 p-4 text-left"
+        className="entity-card row"
+        style={{ borderStyle: 'dashed', gap: 12 }}
       >
-        <IconCalendar className="h-6 w-6 shrink-0 text-teal-400" />
+        <IconCalendar size={24} style={{ color: 'var(--primary)', flex: 'none' }} />
         <div>
-          <p className="text-[15px] font-medium text-slate-200">
-            Définir la date de fin de mission
-          </p>
-          <p className="text-sm text-slate-500">Pour afficher le compte à rebours J−XX</p>
+          <p style={{ fontWeight: 600 }}>Définir la date de fin de mission</p>
+          <p className="muted small">Pour afficher le compte à rebours J−XX</p>
         </div>
       </button>
     )
   }
   const days = daysUntil(md, today)
   return (
-    <button
-      type="button"
-      onClick={onEdit}
-      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-4 text-left"
-    >
+    <button type="button" onClick={onEdit} className="entity-card row-between">
       <div>
-        <p className="text-sm text-slate-400">Fin de mission</p>
-        <p className="mt-0.5 font-mono text-sm tabular-nums text-slate-300">
-          {formatFR(md)}
-        </p>
+        <p className="muted small">Fin de mission</p>
+        <p className="mono-nums small" style={{ marginTop: 2 }}>{formatFR(md)}</p>
       </div>
       <p
-        className={`font-mono text-3xl font-bold tabular-nums ${
-          days < 0 ? 'text-rose-400' : days <= 30 ? 'text-amber-300' : 'text-teal-300'
-        }`}
+        className="mono-nums"
+        style={{
+          fontSize: 30,
+          fontWeight: 800,
+          color: days < 0 ? 'var(--danger)' : days <= 30 ? 'var(--warning)' : 'var(--success)',
+        }}
       >
         {countdownLabel(days)}
       </p>
@@ -75,46 +71,34 @@ function RelancesDuJour({ onDone }) {
 
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Relances du jour
-      </h2>
+      <h2 className="section-title" style={{ marginBottom: 8 }}>Relances du jour</h2>
       {due.length === 0 ? (
-        <p className="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-sm text-slate-500">
+        <p className="card card-pad muted small">
           Aucune relance due dans les 2 prochains jours ✅
         </p>
       ) : (
-        <ul className="space-y-2">
+        <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
           {due.map((p) => {
             const days = daysUntil(p.nextFollowUp, today)
             const companyLabel =
               (p.companyId && companiesById.get(p.companyId)?.name) || p.companyName
             return (
-              <li
-                key={p.id}
-                className="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-3.5"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-medium text-slate-100">
-                    {p.name}
-                  </p>
-                  <p className="mt-0.5 flex items-center gap-2 text-sm">
-                    <span
-                      className={`whitespace-nowrap rounded-full border px-2 py-px text-xs font-medium ${followUpBadge(days)}`}
-                    >
-                      {dueLabel(days)}
-                    </span>
-                    {companyLabel && (
-                      <span className="truncate text-slate-500">{companyLabel}</span>
-                    )}
+              <li key={p.id} className="card card-pad row" style={{ gap: 12 }}>
+                <div className="flex-1">
+                  <p className="truncate" style={{ fontWeight: 600 }}>{p.name}</p>
+                  <p className="row small" style={{ marginTop: 2 }}>
+                    <span className={`badge ${followUpBadge(days)}`}>{dueLabel(days)}</span>
+                    {companyLabel && <span className="truncate faint">{companyLabel}</span>}
                   </p>
                 </div>
                 {!readOnly && (
                   <button
                     type="button"
                     onClick={() => onDone(p)}
-                    className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl border border-teal-500/30 bg-teal-500/10 px-3 text-sm font-medium text-teal-300 active:bg-teal-500/20"
+                    className="btn btn-sm btn-primary"
+                    style={{ height: 44, flex: 'none' }}
                   >
-                    <IconCheck className="h-4 w-4" /> Relance faite
+                    <IconCheck size={16} /> Relance faite
                   </button>
                 )}
               </li>
@@ -137,10 +121,8 @@ function Pipeline({ onPick }) {
   if (orderedKeys.length === 0) return null
   return (
     <section>
-      <h2 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
-        Pipeline
-      </h2>
-      <div className="grid grid-cols-2 gap-2">
+      <h2 className="section-title" style={{ marginBottom: 8 }}>Pipeline</h2>
+      <div className="grid-2">
         {orderedKeys.map((key) => {
           const s = statusOf(key)
           return (
@@ -148,15 +130,14 @@ function Pipeline({ onPick }) {
               key={key}
               type="button"
               onClick={() => onPick(key)}
-              className="flex items-center justify-between rounded-2xl border border-slate-800 bg-slate-900 px-4 py-3 active:border-slate-700"
+              className="tile row-between"
+              style={{ '--pill-hue': s.color }}
             >
-              <span className="flex min-w-0 items-center gap-2 text-sm text-slate-300">
-                <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
+              <span className="row small muted flex-1" style={{ gap: 8 }}>
+                <span className="status-dot" />
                 <span className="truncate">{s.label}</span>
               </span>
-              <span className="ml-2 font-mono text-lg font-bold tabular-nums text-slate-100">
-                {counts.get(key)}
-              </span>
+              <span className="tile-number">{counts.get(key)}</span>
             </button>
           )
         })}
@@ -166,9 +147,8 @@ function Pipeline({ onPick }) {
 }
 
 export default function Tableau({ navigate }) {
-  const { doc, actions, today, readOnly, showToast, syncState, driveSyncState } =
-    useRadar()
-  const dotStatus = combineSyncStatus(syncState.status, driveSyncState.status)
+  const { doc, actions, today, readOnly, showToast, syncStatus } = useRadar()
+  const dotState = combineSyncState(syncStatus.github.state, syncStatus.drive.state)
   const [missionSheet, setMissionSheet] = useState(false)
   const [missionDraft, setMissionDraft] = useState(null)
   const [backupOpen, setBackupOpen] = useState(false)
@@ -202,20 +182,18 @@ export default function Tableau({ navigate }) {
   }
 
   return (
-    <div className="space-y-5">
-      <header className="flex items-center justify-between">
+    <div className="stack-5">
+      <header className="row-between">
         <div>
-          <h1 className="text-xl font-bold text-slate-100">Radar</h1>
-          <p className="font-mono text-xs tabular-nums text-slate-500">
-            {formatFR(today)}
-          </p>
+          <h1 className="screen-title">Radar</h1>
+          <p className="faint tiny mono-nums">{formatFR(today)}</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="row">
           <button
             type="button"
             onClick={() => setStatsOpen(true)}
             aria-label="Statistiques"
-            className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-400 active:text-slate-200"
+            className="icon-btn"
           >
             <IconChart />
           </button>
@@ -223,14 +201,11 @@ export default function Tableau({ navigate }) {
             type="button"
             onClick={() => setBackupOpen(true)}
             aria-label="Sauvegarde"
-            className="relative flex h-11 w-11 items-center justify-center rounded-xl border border-slate-800 bg-slate-900 text-slate-400 active:text-slate-200"
+            className="icon-btn"
           >
             <IconGear />
-            {syncDotClass(dotStatus) && (
-              <span
-                aria-hidden="true"
-                className={`absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full ring-2 ring-slate-950 ${syncDotClass(dotStatus)}`}
-              />
+            {syncDotClass(dotState) && (
+              <span aria-hidden="true" className={`sync-dot ${syncDotClass(dotState)}`} />
             )}
           </button>
         </div>
@@ -240,7 +215,8 @@ export default function Tableau({ navigate }) {
         <button
           type="button"
           onClick={() => setBackupOpen(true)}
-          className="w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-2.5 text-left text-sm font-medium text-amber-200"
+          className="banner banner-warn btn-mid"
+          style={{ textAlign: 'left', height: 'auto', cursor: 'pointer' }}
         >
           💾 Pense à exporter tes données{' '}
           {lastExport
@@ -267,12 +243,8 @@ export default function Tableau({ navigate }) {
             }}
           />
           <Pipeline onPick={(statusKey) => navigate('entreprises', { statusFilter: statusKey })} />
-          <button
-            type="button"
-            onClick={copyPoint}
-            className="flex h-13 w-full items-center justify-center gap-2 rounded-2xl bg-teal-500 py-3.5 text-[15px] font-semibold text-slate-950 active:bg-teal-400"
-          >
-            <IconCopy className="h-5 w-5" /> Copier le point pour Claude
+          <button type="button" onClick={copyPoint} className="btn btn-primary btn-tall">
+            <IconCopy /> Copier le point pour Claude
           </button>
         </>
       )}
@@ -283,7 +255,7 @@ export default function Tableau({ navigate }) {
         onClose={() => setMissionSheet(false)}
         title="Fin de mission"
       >
-        <div className="space-y-4 pt-1">
+        <div className="stack-3" style={{ paddingTop: 4 }}>
           <DateField
             id="mission-end"
             label="Date de fin de mission"
@@ -296,7 +268,7 @@ export default function Tableau({ navigate }) {
               actions.setMissionEndDate(missionDraft)
               setMissionSheet(false)
             }}
-            className="h-12 w-full rounded-xl bg-teal-500 text-[15px] font-semibold text-slate-950 active:bg-teal-400"
+            className="btn btn-primary btn-tall"
           >
             Enregistrer
           </button>
@@ -322,8 +294,8 @@ export default function Tableau({ navigate }) {
         onClose={() => setCopyFallback(null)}
         title="Copie manuelle"
       >
-        <div className="space-y-3 pt-1">
-          <p className="text-sm text-slate-400">
+        <div className="stack-3" style={{ paddingTop: 4 }}>
+          <p className="muted small">
             La copie automatique a échoué. Sélectionne le texte ci-dessous, ou
             partage-le directement :
           </p>
@@ -331,9 +303,9 @@ export default function Tableau({ navigate }) {
             <button
               type="button"
               onClick={() => navigator.share({ text: copyFallback }).catch(() => {})}
-              className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-teal-500 text-sm font-semibold text-slate-950"
+              className="btn btn-primary btn-mid"
             >
-              <IconShare className="h-4 w-4" /> Partager
+              <IconShare size={16} /> Partager
             </button>
           )}
           <textarea
@@ -342,7 +314,7 @@ export default function Tableau({ navigate }) {
             rows={10}
             value={copyFallback ?? ''}
             onFocus={(e) => e.target.select()}
-            className="w-full rounded-xl border border-slate-800 bg-slate-950 px-3 py-2 font-mono text-xs text-slate-200"
+            className="textarea mono-nums tiny"
           />
         </div>
       </BottomSheet>

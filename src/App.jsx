@@ -4,15 +4,12 @@ import {
   makeId,
   exportJSON,
   DATA_KEY,
+  loadSyncConfig,
   loadDriveSyncConfig,
-  saveDriveSyncConfig,
-  loadDriveSyncState,
-  saveDriveSyncState,
-  clearDriveSync,
+  loadThemePref,
+  saveThemePref,
 } from './storage/index.js'
-import { createSyncEngine, createSyncLock } from './sync/engine.js'
-import * as driveApi from './sync/drive.js'
-import { isValidDriveConfig } from './sync/drive.js'
+import { createEngine } from './sync/engine.js'
 import { statusOf } from './config/statuses.js'
 import { todayLocal, dueSoonCount } from './lib/dates.js'
 import { downloadText } from './lib/download.js'
@@ -27,6 +24,14 @@ import Entreprises from './screens/Entreprises.jsx'
 import Contacts from './screens/Contacts.jsx'
 
 const nowISO = () => new Date().toISOString()
+
+// Cockpit-style theme override: 'system' follows prefers-color-scheme via
+// tokens.css; 'light'/'dark' pin the [data-theme] attribute (wins over system).
+function applyTheme(theme) {
+  const root = document.documentElement
+  if (theme === 'light' || theme === 'dark') root.setAttribute('data-theme', theme)
+  else root.removeAttribute('data-theme')
+}
 
 export default function App() {
   const storeRef = useRef(null)
@@ -43,107 +48,58 @@ export default function App() {
   const [tab, setTab] = useState('tableau')
   const [cmd, setCmd] = useState(null)
   const [sheetCount, setSheetCount] = useState(0)
+  const [theme, setThemeState] = useState(() => loadThemePref(window.localStorage))
 
   const docRef = useRef(doc)
   docRef.current = doc
   const saveErrorRef = useRef(saveError)
   saveErrorRef.current = saveError
+  // Read-only latch (newer-version doc): this tab must never write — locally
+  // NOR remotely. Syncing would re-stamp a v(n+1) document as v(n) on push.
+  const readOnlyRef = useRef(readOnly)
+  readOnlyRef.current = readOnly
   // showToast is defined below; the sync engine (created once here) reaches it
   // through this ref so its closure never goes stale.
   const showToastRef = useRef(() => {})
 
-  // ----- opt-in sync: TWO independent remotes (GitHub §10bis + Google Drive
-  // §10ter). Same engine, same `adopt`; a SHARED lock serializes their cycles
-  // so adoptions never race. Everything is additive — GitHub is untouched. -----
-  const syncLockRef = useRef(null)
-  if (!syncLockRef.current) syncLockRef.current = createSyncLock()
+  useEffect(() => applyTheme(theme), [theme])
+  const setTheme = useCallback((t) => {
+    setThemeState(t)
+    saveThemePref(window.localStorage, t)
+  }, [])
 
-  const enginesRef = useRef(null)
-  if (!enginesRef.current) {
-    // Adopting a remote version = an import: snapshot first, revision guard.
-    // Shared by both remotes; the store's revision guard keeps them consistent.
-    //
-    // NOTE on `getDoc: () => docRef.current` with two engines. When both
-    // remotes are configured, their cycles run back-to-back inside the shared
-    // lock; `docRef` only refreshes on the next React render, so if the first
-    // cycle adopts, the second still reads the pre-adopt doc. This is
-    // DELIBERATE, not a bug to "fix": an engine only reaches `adopt` when
-    // localChanged is false (unsynced local edits force `conflict` instead, so
-    // user work is never silently dropped — no data loss). Feeding the second
-    // engine the freshly-adopted revision would instead make it see
-    // localChanged=true and raise a FALSE conflict on every steady-state sync
-    // where another device pushed the same content to both remotes. The worst
-    // case here is a redundant second adopt of identical content, corrected on
-    // the next cycle by the revision-based sync state — transient, never lossy.
-    const adopt = (remoteDoc) => {
-      const prev = docRef.current
-      const hadData =
-        prev.companies.length > 0 ||
-        prev.contacts.length > 0 ||
-        prev.settings.missionEndDate != null
-      const r = store.applyImport(remoteDoc)
-      if (r.ok) {
-        setDoc(r.doc)
-        setSaveError(null)
-        if (hadData && r.snapshotKey) {
-          showToastRef.current({
-            message: 'Données mises à jour depuis un autre appareil',
-            action: {
-              label: 'Annuler',
-              onClick: () => {
-                const u = store.undoImport(r.snapshotKey)
-                if (u.ok) {
-                  setDoc(u.doc)
-                  showToastRef.current({ message: 'Version précédente restaurée.' })
-                } else {
-                  showToastRef.current({ message: 'Impossible de restaurer.', kind: 'error' })
-                }
-              },
-            },
-          })
-        }
-      } else if (r.error === 'conflict') {
-        setSaveError('conflict')
-      }
-      return r
-    }
-
-    const github = createSyncEngine({
-      storage: window.localStorage,
-      getDoc: () => docRef.current,
-      adopt,
-      onState: (s) => setSyncState(s),
-      lock: syncLockRef.current,
+  // ----- opt-in sync: ONE merge-based engine driving BOTH remotes (GitHub +
+  // Google Drive gateway) — ARCHITECTURE.md §10bis/§10ter, Cockpit pattern:
+  // pull+merge each remote, then push both with compare-and-swap. -----
+  const engineRef = useRef(null)
+  if (!engineRef.current) {
+    engineRef.current = createEngine({
+      store: {
+        getSnapshot: () => docRef.current,
+        // The merged doc goes through the SAME revision-guarded save as any
+        // mutation — a stale tab still cannot clobber another tab's writes.
+        replaceState: (merged) => {
+          const r = store.save(merged)
+          if (r.ok) {
+            // Synchronous ref update: the push phase of the SAME cycle must
+            // serialize the merged doc, not wait for the next React render.
+            docRef.current = r.doc
+            setDoc(r.doc)
+            setSaveError(null)
+            showToastRef.current({ message: 'Données synchronisées depuis un autre appareil' })
+          } else if (r.error === 'conflict') {
+            setSaveError('conflict')
+          }
+          return r
+        },
+      },
+      getGithubConfig: () => loadSyncConfig(window.localStorage),
+      getDriveConfig: () => loadDriveSyncConfig(window.localStorage),
+      onStatus: (s) => setSyncStatus(s),
     })
-
-    const drive = createSyncEngine({
-      storage: window.localStorage,
-      api: driveApi,
-      getDoc: () => docRef.current,
-      adopt,
-      onState: (s) => setDriveSyncState(s),
-      lock: syncLockRef.current,
-      loadConfig: loadDriveSyncConfig,
-      saveConfig: saveDriveSyncConfig,
-      clearConfig: clearDriveSync,
-      loadState: loadDriveSyncState,
-      saveState: saveDriveSyncState,
-      isValidConfig: isValidDriveConfig,
-      normalizeConfig: (c) => ({
-        url: c.url.trim(),
-        secret: c.secret.trim(),
-        path: c.path || 'radar.json',
-      }),
-      sameTarget: (a, b) =>
-        a.url === b.url && (a.path || 'radar.json') === (b.path || 'radar.json'),
-    })
-
-    enginesRef.current = { github, drive }
   }
-  const sync = enginesRef.current.github
-  const driveSync = enginesRef.current.drive
-  const [syncState, setSyncState] = useState(() => sync.getState())
-  const [driveSyncState, setDriveSyncState] = useState(() => driveSync.getState())
+  const engine = engineRef.current
+  const [syncStatus, setSyncStatus] = useState(() => engine.getStatus())
 
   // ----- today, refreshed across midnight and app resume -----
   const [today, setToday] = useState(() => todayLocal())
@@ -207,43 +163,32 @@ export default function App() {
     return () => window.removeEventListener('storage', onStorage)
   }, [store])
 
-  // Reconcile against BOTH configured remotes. The shared lock serializes the
-  // two cycles, so GitHub reconciles then Drive reconciles (each pulls/adopts
-  // or pushes independently); local stays the single source of truth.
-  const syncAll = useCallback(() => {
-    // Don't reconcile while local persistence is unhealthy: a cycle can pull &
-    // adopt, and adopting over an unsaved/conflicted in-memory doc is exactly
-    // what we must avoid (same guard as the storage-event handler and the
-    // debounced push). The user resolves the banner first, then sync resumes.
-    if (saveErrorRef.current) return
-    if (sync.isConfigured()) sync.syncNow()
-    if (driveSync.isConfigured()) driveSync.syncNow()
-  }, [sync, driveSync])
-
-  // ----- sync triggers: launch, app resume, back online, local mutations -----
+  // ----- sync triggers: launch, app resume, back online, local mutations.
+  // Guarded while local persistence is unhealthy: a cycle pulls & merges into
+  // the local doc, which must not happen over an unsaved/conflicted state. -----
   useEffect(() => {
-    syncAll()
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') syncAll()
+    const syncNow = (reason) => {
+      if (saveErrorRef.current || readOnlyRef.current) return
+      engine.sync(reason)
     }
-    const onOnline = () => syncAll()
+    syncNow('launch')
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') syncNow('visible')
+    }
+    const onOnline = () => syncNow('online')
     document.addEventListener('visibilitychange', onVisible)
     window.addEventListener('online', onOnline)
     return () => {
       document.removeEventListener('visibilitychange', onVisible)
       window.removeEventListener('online', onOnline)
+      engine.stop()
     }
-  }, [syncAll])
+  }, [engine])
 
   useEffect(() => {
-    // Don't push while local persistence is unhealthy (a conflict or a
-    // failed write means the in-memory doc may be stale or unsaved — pushing
-    // it would launder that problem to the other remote/device). Both remotes
-    // debounce independently; the shared lock serializes their cycles.
-    if (saveError) return
-    sync.schedulePush()
-    driveSync.schedulePush()
-  }, [doc, saveError, sync, driveSync])
+    if (saveError || readOnly) return
+    engine.scheduleSync('change')
+  }, [doc, saveError, readOnly, engine])
 
   const actions = useMemo(() => {
     const updateContact = (id, patch) =>
@@ -253,11 +198,22 @@ export default function App() {
           p.id === id ? { ...p, ...patch, updatedAt: nowISO() } : p,
         ),
       }))
+    // settings is merged whole-block by LWW on this (additive) stamp.
+    const stampSettings = (settings) => ({ ...settings, updatedAt: Date.now() })
     return {
       setMissionEndDate: (date) =>
-        mutate((d) => ({ ...d, settings: { ...d.settings, missionEndDate: date } })),
+        mutate((d) => ({
+          ...d,
+          settings: stampSettings({ ...d.settings, missionEndDate: date }),
+        })),
+      // NO settings.updatedAt stamp here: lastExportAt is pure metadata and
+      // merges as max-of-both on its own (merge.js) — an export must never
+      // drag stale user settings over the other device's newer ones.
       markExported: () =>
-        mutate((d) => ({ ...d, settings: { ...d.settings, lastExportAt: nowISO() } })),
+        mutate((d) => ({
+          ...d,
+          settings: { ...d.settings, lastExportAt: nowISO() },
+        })),
       addCompany: (data) =>
         mutate((d) => ({
           ...d,
@@ -327,6 +283,7 @@ export default function App() {
           ),
         })),
       // Deleting a company NEVER deletes its contacts: links become free text.
+      // A tombstone (root.deleted[]) stops other devices resurrecting it.
       deleteCompany: (id) =>
         mutate((d) => {
           const company = d.companies.find((c) => c.id === id)
@@ -343,6 +300,7 @@ export default function App() {
                   }
                 : p,
             ),
+            deleted: [...(d.deleted ?? []), { id, at: Date.now(), kind: 'company' }],
           }
         }),
       addContact: (data) =>
@@ -361,7 +319,11 @@ export default function App() {
         })),
       updateContact,
       deleteContact: (id) =>
-        mutate((d) => ({ ...d, contacts: d.contacts.filter((p) => p.id !== id) })),
+        mutate((d) => ({
+          ...d,
+          contacts: d.contacts.filter((p) => p.id !== id),
+          deleted: [...(d.deleted ?? []), { id, at: Date.now(), kind: 'contact' }],
+        })),
       // Sets lastContact to today, appends a global stats entry AND a
       // timestamped entry in the contact's own history timeline.
       markFollowUpDone: (id) =>
@@ -384,13 +346,33 @@ export default function App() {
             ),
             activityLog: [
               ...(d.activityLog ?? []),
-              { type: 'relance', date: day, contactId: id },
+              // id makes each event unique across devices (merge = union by id).
+              { id: makeId('act'), type: 'relance', date: day, contactId: id },
             ],
           }
         }),
       reschedule: (id, date) => updateContact(id, { nextFollowUp: date }),
       importDoc: (importedDoc) => {
-        const r = store.applyImport(importedDoc)
+        // A manual import is a confirmed REPLACE. Tombstone every entity the
+        // import removes, so sync propagates the removal instead of merging
+        // the old records straight back from the remotes seconds later.
+        const prev = docRef.current
+        const kept = new Set(
+          [...importedDoc.companies, ...importedDoc.contacts].map((e) => e.id),
+        )
+        const now = Date.now()
+        const removedTombs = [
+          ...prev.companies
+            .filter((c) => !kept.has(c.id))
+            .map((c) => ({ id: c.id, at: now, kind: 'company' })),
+          ...prev.contacts
+            .filter((p) => !kept.has(p.id))
+            .map((p) => ({ id: p.id, at: now, kind: 'contact' })),
+        ]
+        const withTombs = removedTombs.length
+          ? { ...importedDoc, deleted: [...(importedDoc.deleted ?? []), ...removedTombs] }
+          : importedDoc
+        const r = store.applyImport(withTombs)
         if (r.ok) {
           setDoc(r.doc)
           setSaveError(null)
@@ -438,12 +420,12 @@ export default function App() {
       readOnly,
       today,
       showToast,
-      syncState,
-      syncEngine: sync,
-      driveSyncState,
-      driveSyncEngine: driveSync,
+      syncStatus,
+      syncEngine: engine,
+      theme,
+      setTheme,
     }),
-    [doc, actions, readOnly, today, showToast, syncState, sync, driveSyncState, driveSync],
+    [doc, actions, readOnly, today, showToast, syncStatus, engine, theme, setTheme],
   )
 
   const status = store.initial.status
@@ -453,12 +435,9 @@ export default function App() {
   return (
     <RadarContext.Provider value={radarValue}>
       <UiContext.Provider value={uiValue}>
-        <div className="min-h-dvh bg-slate-950 text-slate-100">
-          <main
-            className="mx-auto max-w-md px-4 pb-32"
-            style={{ paddingTop: 'max(1rem, env(safe-area-inset-top))' }}
-          >
-            <div className="space-y-3">
+        <div className="app-shell">
+          <main className="app-main">
+            <div className="stack-3">
               {status === 'recovered-corrupt' && !corruptDismissed && (
                 <Banner
                   tone="error"
@@ -566,34 +545,13 @@ export default function App() {
                   exporte-les maintenant.
                 </Banner>
               )}
-              {syncState.status === 'conflict' && (
-                <Banner
-                  tone="warn"
-                  actions={[
-                    { label: 'Garder cet appareil', onClick: () => sync.resolveKeepLocal() },
-                    { label: 'Prendre l’autre version', onClick: () => sync.resolveTakeRemote() },
-                    { label: 'Exporter ma copie', onClick: exportInMemory },
-                  ]}
-                >
-                  <strong>Conflit de synchro (GitHub)</strong> : les données ont
-                  changé ici ET sur GitHub. Choisis la version à garder —
-                  l’autre sera remplacée (une copie de secours locale est prise
-                  avant tout remplacement).
-                </Banner>
-              )}
-              {driveSyncState.status === 'conflict' && (
-                <Banner
-                  tone="warn"
-                  actions={[
-                    { label: 'Garder cet appareil', onClick: () => driveSync.resolveKeepLocal() },
-                    { label: 'Prendre l’autre version', onClick: () => driveSync.resolveTakeRemote() },
-                    { label: 'Exporter ma copie', onClick: exportInMemory },
-                  ]}
-                >
-                  <strong>Conflit de synchro (Google Drive)</strong> : les
-                  données ont changé ici ET sur Drive. Choisis la version à
-                  garder — l’autre sera remplacée (copie de secours locale prise
-                  avant remplacement).
+              {(syncStatus.github.state === 'blocked' || syncStatus.drive.state === 'blocked') && (
+                <Banner tone="warn">
+                  <strong>Synchro bloquée</strong> :{' '}
+                  {syncStatus.github.state === 'blocked'
+                    ? syncStatus.github.message
+                    : syncStatus.drive.message}{' '}
+                  Tes données locales sont intactes.
                 </Banner>
               )}
               {saveError === 'conflict' && (
@@ -622,7 +580,7 @@ export default function App() {
               )}
             </div>
 
-            <div className={status === 'recovered-corrupt' || saveError ? 'mt-4' : ''}>
+            <div className={status === 'recovered-corrupt' || saveError ? 'gap-top' : ''}>
               {tab === 'tableau' && <Tableau navigate={navigate} />}
               {tab === 'entreprises' && (
                 <Entreprises cmd={cmd} onCmdConsumed={consumeCmd} />

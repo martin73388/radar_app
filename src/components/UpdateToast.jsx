@@ -20,20 +20,19 @@ export default function UpdateToast() {
     // Rendered at the TOP so it can never cover (or be covered by) the
     // regular toast, which lives above the tab bar.
     <div
-      className="fixed inset-x-0 z-50 flex justify-center px-4"
-      style={{ top: 'max(0.75rem, env(safe-area-inset-top))' }}
+      className="toast"
+      style={{ top: 'max(0.75rem, env(safe-area-inset-top))', bottom: 'auto' }}
+      role="status"
     >
-      <div className="flex items-center gap-3 rounded-2xl border border-slate-700 bg-slate-800 px-4 py-2 text-sm text-slate-100 shadow-xl">
-        <span>Nouvelle version disponible</span>
-        <button
-          type="button"
-          disabled={blocked}
-          onClick={() => updateServiceWorker(true)}
-          className="min-h-11 rounded-lg bg-teal-500 px-3 font-semibold text-slate-950 active:bg-teal-400 disabled:opacity-40"
-        >
-          Recharger
-        </button>
-      </div>
+      <span>Nouvelle version disponible</span>
+      <button
+        type="button"
+        disabled={blocked}
+        onClick={() => updateServiceWorker(true)}
+        className="btn btn-sm btn-primary"
+      >
+        Recharger
+      </button>
     </div>,
     document.body,
   )

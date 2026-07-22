@@ -384,36 +384,48 @@ Design constraints of a static GitHub Pages app:
   §2 document **minus `revision`** (device-local counter — syncing it would
   cause commit ping-pong between devices).
 
-### Sync engine (`src/sync/`)
+### Sync engine (`src/sync/`) — merge-based, aligned on Cockpit (2026-07-22)
 
-- Per-device state `radar:sync:state` = `{ lastSyncedSha, lastSyncedRevision }`.
-  - `localChanged` = local `revision` ≠ `lastSyncedRevision`
-    (first sync: = "has any data").
-  - `remoteMoved` = remote file sha ≠ `lastSyncedSha` (first sync: true).
-- Decision table (pure, unit-tested — `decideSync`):
-  | remote file | remoteMoved | localChanged | action |
-  |---|---|---|---|
-  | absent | — | — | push (creates the file) |
-  | present | no | no | noop |
-  | present | no | yes | push (CAS on sha) |
-  | present | yes | no | adopt remote |
-  | present | yes | yes | **conflict** — explicit choice |
-- **Adopt** runs the remote payload through `parseImport` (same validation,
-  migration, newer-version rejection as a manual import) and applies it via
-  `applyImport` (pre-adopt snapshot, revision guard). **Push** uses the sha
-  as compare-and-swap: a 409/422 means the remote moved → re-pull, never
-  blind-overwrite.
-- **Conflict is never resolved silently**: a banner offers « Garder cet
-  appareil » (force-push local) or « Prendre l'autre version » (adopt, with
-  snapshot). Until resolved the app keeps working locally.
-- Triggers: pull on launch, on `visibilitychange→visible`, on « Synchroniser
-  maintenant »; push debounced ~2.5 s after each mutation. Offline or API
-  failure → visible status, local-first behavior unchanged, retry on next
-  trigger. Remote written by a newer app version → sync pauses with
-  « ferme et rouvre l'app » (no downgrade, mirroring §5).
-- UI: « Synchronisation » section in the Sauvegarde sheet (configure with
-  `owner/repo` + token, status + last sync time, Synchroniser maintenant,
-  Désactiver — local data kept); a status dot next to ⚙️ on TABLEAU.
+Rebuilt on the cockpit_app reference implementation (Martin's request:
+« porter les correctifs de Cockpit »). One engine drives BOTH remotes; on
+every cycle (launch / visible / online / manual / debounced ~2.5 s after a
+mutation): pull GitHub → merge; pull Drive → merge; then push both with
+compare-and-swap.
+
+- **Merge (`merge.js`)** — commutative & idempotent, unit-tested:
+  - Per-id **last-writer-wins** on `updatedAt` for companies/contacts (whole
+    object), EXCEPT `history` which merges by **union** of entries (a note
+    from the losing side never disappears). `ts()` coerces ISO strings,
+    epoch numbers and numeric strings so a foreign/hand-edited timestamp
+    can't break commutativity (Cockpit fix c).
+  - **Tombstones** `root.deleted[] = {id, at(epoch ms), kind:'company'|'contact'}`
+    (ADDITIVE field) stop a deleted record being resurrected by an older
+    copy; an edit newer than the delete revives and prunes the tombstone.
+  - `settings` merges whole-block by LWW on an additive `settings.updatedAt`
+    stamp; `activityLog` merges by union (new entries carry an `id`).
+  - **Canonical serialization**: fixed key order + stable array order →
+    two devices at the same state emit byte-identical files (no CAS
+    ping-pong); `revision` (device-local) and `exportedAt` never serialize.
+- **Protection guards (never clobber, applied on the pull path AND on the
+  conflict-retry path — Cockpit fixes a & b)**:
+  - Foreign file (not `companies[]`+`contacts[]` arrays) → status
+    **'blocked'**, no write, no merge (e.g. cockpit-data.json).
+  - `schemaVersion` newer than this build → **'blocked'** with « mets
+    l'app à jour », no downgrade (mirrors §5).
+  - Remote content passes the same `parseImport` gate as a manual import
+    (migration, strict shape, duplicate ids) before merging.
+- **Push CAS (fix e)**: GitHub 409/422 / Drive `conflict` → re-pull +
+  merge + re-push, bounded (4 retries) → status 'conflict' (retried on the
+  next trigger). Byte-identical remote content → write skipped.
+- **GitHub 403 (fix d)**: `x-ratelimit-remaining: 0` / `retry-after` →
+  transient rate-limit error (offline-like, auto-retry), NOT « jeton
+  invalide »; only real 401/403 auth failures surface as AuthError.
+- Merged results land locally through the SAME revision-guarded save as any
+  mutation (a stale tab still can't clobber another tab). Local persistence
+  unhealthy (conflict/write-failed banner) → sync cycles are suspended.
+- UI: per-remote status in the Sauvegarde sheet; one dot next to ⚙️ on
+  TABLEAU showing the worst of the two remotes; a banner when a remote is
+  'blocked'. Conflict banners are gone — merge resolves concurrent edits.
 
 Privacy note (documented to Martin): with sync ON, the prospect list lives
 in his private GitHub repo — visible to GitHub and to anyone holding the
@@ -429,47 +441,37 @@ Script Web App gateway** (the "Cockpit"). This is **purely additive**: GitHub
 loss). Both remotes can be active at once; each is opt-in and configured
 per device. Without configuration Drive is simply off.
 
-Design:
+Design (2026-07-22: both remotes are now driven by the ONE merge-based
+engine described in §10bis — the former second-instance/lock design is
+superseded):
 
-- **Same engine, second instance.** `createSyncEngine` is remote-agnostic:
-  the GitHub instance keeps its exact original behavior via built-in
-  defaults; the Drive instance injects its own `api` (`src/sync/drive.js`),
-  config/state accessors and validators. The two instances share **one
-  `createSyncLock()` serializer**, so their cycles never overlap and
-  adoptions can't race the shared local document.
 - **Gateway client (`src/sync/drive.js`)** speaks the same interface as
-  `github.js` — `fetchRemoteFile → { ok, exists, sha?, text? }`,
-  `putRemoteFile → { ok, sha } | { ok:false, error }` — so the engine is
-  reused unchanged. The gateway's opaque `version` (a content hash) plays
-  the role of GitHub's `sha` (the CAS token); it is mapped `version ↔ sha`
-  at the client boundary.
-- **CORS: only "simple requests"** (the Apps Script gateway does not answer
-  `OPTIONS` preflights). Therefore GET carries auth in the query string with
-  **no custom headers**, and POST uses **`Content-Type: text/plain`** (never
-  `application/json`) with the JSON sent as a raw text body. A `conflict`
-  from the gateway maps to `sha-conflict` → the engine re-pulls, exactly like
-  GitHub's 409/422.
-- **Separate device-local keys**, never colliding with GitHub:
-  `radar:sync:drive:config` = `{ url, secret, path }` and
-  `radar:sync:drive:state` = `{ lastSyncedVersion, lastSyncedRevision,
-  lastSyncAt }`. The uniform engine field `lastSyncedSha` is translated to/from
-  the persisted `lastSyncedVersion` in the storage accessors. **URL + secret
-  live only on the device** — never inside the synced/exported document,
-  never in the bundle.
-- **Same data-safety gate as GitHub:** adoption of a Drive payload goes
-  through `parseImport` (must be a Radar doc — `schemaVersion` present,
-  `companies`/`contacts` arrays — not a newer schema) and `applyImport`
-  (pre-adopt snapshot + revision guard). The pushed payload is still the §2
-  document **minus `revision`**.
-- **Orchestration:** every trigger (launch, `visibilitychange→visible`,
-  back-online, « Synchroniser maintenant », debounced push) reconciles **both**
-  configured remotes; the shared lock serializes GitHub then Drive. Conflicts
-  are per-remote, each with its own banner (« … (GitHub) » / « … (Google
-  Drive) ») and explicit « Garder cet appareil » / « Prendre l'autre version ».
+  `github.js` — `read() → { exists, version, content, raw }`,
+  `write(cfg, text, baseVersion) → { version }`, typed errors
+  (ConflictError carries the gateway's `version` + `content` payload).
+  The gateway's opaque `version` (a content hash) plays the role of
+  GitHub's `sha` (the CAS token).
+- **PROTOCOL — HARD RULE (§4), never change it**: Cockpit's « Projet » menu
+  and the robot assistant read `radar.json` through this same gateway.
+  - READ: `GET <url>?secret=<S>&file=radar.json` →
+    `{ ok, exists, version, content }` (no custom headers — CORS-simple).
+  - WRITE: `POST <url>`, body = JSON `{secret, file, content, baseVersion}`
+    sent with **`Content-Type: text/plain`** (never `application/json` —
+    the gateway answers no `OPTIONS` preflight) →
+    `{ ok:true, version }` | `{ ok:false, error:'conflict', version, content }`
+    | `{ ok:false, error:'auth'|'bad-request'|'busy' }` ('busy' = transient).
+- **Config** `radar:sync:drive:config` = `{ url, secret, path }`,
+  device-local only — never inside the synced/exported document, never in
+  the bundle. (The legacy per-device `radar:sync:*:state` anchors are
+  obsolete under the merge engine and are cleaned up on disable.)
+- A Drive `conflict` payload goes through the SAME foreign-file /
+  newer-schema / parseImport guards as a pull before being merged
+  (Cockpit fix a) — a competing writer can never trick Radar into
+  overwriting a non-Radar file.
 - **UI:** a « Synchronisation Drive (Cockpit) » section in the Sauvegarde
   sheet (URL + secret + status + Synchroniser maintenant + Désactiver), next
   to the GitHub section. The ⚙️ status dot shows the **worst** of the two
-  remotes (`combineSyncStatus`).
+  remotes (`combineSyncState`).
 
 Privacy note (documented to Martin): with Drive sync ON, the prospect list
 also lives in his Google Drive, reachable by whoever holds the gateway URL +

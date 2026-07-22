@@ -6,19 +6,28 @@ function Step({ done, label, onClick }) {
       type="button"
       onClick={onClick}
       disabled={done}
-      className="flex w-full items-center gap-3 rounded-xl border border-slate-800 bg-slate-950 px-4 py-3 text-left disabled:opacity-70"
+      className="btn btn-mid"
+      style={{ justifyContent: 'flex-start', gap: 12, textAlign: 'left' }}
     >
       <span
-        className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border ${
-          done
-            ? 'border-teal-500/50 bg-teal-500/20 text-teal-300'
-            : 'border-slate-700 text-transparent'
-        }`}
+        style={{
+          display: 'grid',
+          placeItems: 'center',
+          width: 24,
+          height: 24,
+          flex: 'none',
+          borderRadius: '50%',
+          border: '1px solid',
+          borderColor: done ? 'var(--success)' : 'var(--border-strong)',
+          background: done ? 'var(--success-bg)' : 'transparent',
+          color: done ? 'var(--success)' : 'transparent',
+        }}
       >
-        <IconCheck className="h-3.5 w-3.5" />
+        <IconCheck size={14} />
       </span>
       <span
-        className={`text-sm font-medium ${done ? 'text-slate-500 line-through' : 'text-slate-200'}`}
+        className={done ? 'small muted' : 'small'}
+        style={done ? { textDecoration: 'line-through' } : { fontWeight: 600 }}
       >
         {label}
       </span>
@@ -29,13 +38,13 @@ function Step({ done, label, onClick }) {
 /** Shown on TABLEAU while the app is empty (no companies AND no contacts). */
 export default function OnboardingChecklist({ missionSet, onAddCompany, onAddContact, onSetMission }) {
   return (
-    <section className="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <h2 className="text-base font-semibold text-slate-100">Bienvenue sur Radar 👋</h2>
-      <p className="mt-1 text-sm leading-relaxed text-slate-400">
+    <section className="card card-pad">
+      <h2>Bienvenue sur Radar 👋</h2>
+      <p className="muted small" style={{ marginTop: 4 }}>
         Ton CRM de prospection, 100 % local : tes données restent sur ton
         téléphone. Trois étapes pour démarrer :
       </p>
-      <div className="mt-3 space-y-2">
+      <div className="stack-2" style={{ marginTop: 12 }}>
         <Step done={false} label="Ajouter ta première entreprise cible" onClick={onAddCompany} />
         <Step done={false} label="Ajouter un premier contact" onClick={onAddContact} />
         <Step

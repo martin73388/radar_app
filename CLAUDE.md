@@ -17,16 +17,41 @@ two-device sync, zero console errors).
 
 Improvements delivered (post-ship, one at a time, validated by Martin):
 LinkedIn field, due-today badge, activity stats, job-posting links (+ posted
-date urgency), timestamped history/suivi on companies & contacts.
-**Dark mode: DROPPED** — Martin is happy with the current dark theme
-(2026-07-19). No open work; awaiting Martin's next request.
+date urgency), timestamped history/suivi on companies & contacts, Google
+Drive gateway as second sync remote (2026-07-19).
+
+**2026-07-22 — Cockpit alignment (Martin's « SOCLE COMMUN » request):**
+Radar is now part of a 3-app suite (Radar / Carnet de bord / Cockpit) whose
+technical & visual REFERENCE is https://github.com/martin73388/cockpit_app.
+- **Design system**: upstream source of truth is
+  **carnet_core/src/design/tokens.css** (real values, « vert forêt »
+  identity); **cockpit_app/src/styles/tokens.css** carries the SAME content
+  in the Cockpit vocabulary (`--text`, `--primary`, `--surface-2`…) via
+  carnet_core/interop/cockpit-tokens.css. Radar's `src/styles/tokens.css` +
+  `interface.css` are VERBATIM copies of cockpit_app's; Radar-specific
+  styles live in `src/styles/app.css`. Tailwind was REMOVED. Bricolage
+  Grotesque (display), system stack (body); light + dark themes via
+  variables + `prefers-color-scheme` + `[data-theme]` override
+  (Système/Clair/Sombre selector in ⚙️); `prefers-reduced-motion`
+  respected. (This supersedes the old « slate/teal, dark-only » look AND
+  the 2026-07-19 « dark mode dropped » note.)
+- **Sync**: merge-based engine ported from cockpit_app (LWW + history union
+  + tombstones `deleted[]`, CAS re-pull/merge/re-push bounded, foreign-file
+  & newer-schema 'blocked' guards on every path, GitHub 403 rate-limit ≠
+  auth). See ARCHITECTURE.md §10bis/§10ter. Conflict banners are gone.
+- **§4 hard compat rules**: never rename `radar.json`, never change
+  `companies[].id` / `companies[].name`, never alter the Drive gateway
+  protocol (GET query + POST text/plain) — Cockpit's « Projet » menu and the
+  robot assistant depend on them. Secrets stay device-local.
 
 Note: commits show as "Unverified" on GitHub (no GPG signing in this env) —
 cosmetic only; committer email is already noreply@anthropic.com.
 
 ## Key constraints (from kickoff brief — hard rules)
 
-- Stack: Vite + React + Tailwind. Mobile-first PWA, installable, offline-capable.
+- Stack: Vite + React (Tailwind was removed 2026-07-22 in favor of the shared
+  Cockpit design system — see Current phase). Mobile-first PWA, installable,
+  offline-capable.
 - No backend, no accounts, no analytics — 100% local data (prospect list is
   confidential). Persistence: localStorage or IndexedDB (justify choice) with a
   **versioned schema + migration path**, plus JSON export/import for backup.
@@ -35,8 +60,8 @@ cosmetic only; committer email is already noreply@anthropic.com.
   destructive action.
 - **Feature parity first** — no scope creep without Martin's OK.
 - Everything usable one-handed at 380px width.
-- Design: keep current feel — slate/teal palette, cards, mono numerals,
-  thumb-friendly bottom sheets.
+- Design: the shared Cockpit design system (tokens.css/interface.css verbatim
+  from cockpit_app) — cards, mono numerals, thumb-friendly bottom sheets kept.
 
 ## Source artifact status
 

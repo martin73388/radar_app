@@ -1,12 +1,13 @@
 import BottomSheet from './BottomSheet.jsx'
 import { useRadar } from '../state/radar.js'
 import { computeStats } from '../lib/stats.js'
+import { statusOf } from '../config/statuses.js'
 
 function Tile({ value, label }) {
   return (
-    <div className="rounded-2xl border border-slate-800 bg-slate-900 p-3 text-center">
-      <p className="font-mono text-2xl font-bold tabular-nums text-slate-100">{value}</p>
-      <p className="mt-0.5 text-xs leading-tight text-slate-400">{label}</p>
+    <div className="card" style={{ padding: 12, textAlign: 'center' }}>
+      <p className="tile-number mono-nums">{value}</p>
+      <p className="muted tiny" style={{ marginTop: 2, lineHeight: 1.2 }}>{label}</p>
     </div>
   )
 }
@@ -19,54 +20,71 @@ export default function StatsSheet({ open, onClose }) {
 
   return (
     <BottomSheet open={open} onClose={onClose} title="Statistiques">
-      <div className="space-y-6 pt-1">
-        <div className="grid grid-cols-3 gap-2">
+      <div className="stack-5" style={{ paddingTop: 4 }}>
+        <div className="grid-3">
           <Tile value={stats.totals.relancesLast7} label="relances (7 j)" />
           <Tile value={stats.totals.relancesTotal} label="relances (total)" />
           <Tile value={stats.totals.won} label="gagnés" />
         </div>
 
         <section>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="section-title" style={{ marginBottom: 8 }}>
             Relances par semaine
           </h3>
-          <div className="flex items-end justify-between gap-1.5" style={{ height: 96 }}>
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'flex-end',
+              justifyContent: 'space-between',
+              gap: 6,
+              height: 96,
+            }}
+          >
             {stats.byWeek.map((w) => (
-              <div key={w.weekStart} className="flex flex-1 flex-col items-center gap-1">
-                <div className="flex w-full flex-1 items-end">
+              <div
+                key={w.weekStart}
+                className="flex-1"
+                style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}
+              >
+                <div style={{ display: 'flex', width: '100%', flex: 1, alignItems: 'flex-end' }}>
                   <div
-                    className="w-full rounded-t bg-teal-500/80"
-                    style={{ height: `${(w.count / maxWeek) * 100}%`, minHeight: w.count ? 4 : 0 }}
+                    style={{
+                      width: '100%',
+                      borderRadius: '4px 4px 0 0',
+                      background: 'var(--primary)',
+                      height: `${(w.count / maxWeek) * 100}%`,
+                      minHeight: w.count ? 4 : 0,
+                    }}
                     title={`${w.count} relance${w.count > 1 ? 's' : ''}`}
                   />
                 </div>
-                <span className="font-mono text-[10px] tabular-nums text-slate-500">
+                <span className="mono-nums faint" style={{ fontSize: 10 }}>
                   {w.count}
                 </span>
-                <span className="text-[9px] text-slate-600">
+                <span className="faint" style={{ fontSize: 9 }}>
                   {w.weekStart.slice(8, 10)}/{w.weekStart.slice(5, 7)}
                 </span>
               </div>
             ))}
           </div>
-          <p className="mt-1 text-center text-[11px] text-slate-500">
+          <p className="faint" style={{ marginTop: 4, textAlign: 'center', fontSize: 11 }}>
             8 dernières semaines (lundi de chaque semaine)
           </p>
         </section>
 
         <section>
-          <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-slate-400">
+          <h3 className="section-title" style={{ marginBottom: 8 }}>
             Entreprises par statut ({stats.totals.companies})
           </h3>
           {stats.perStatus.length === 0 ? (
-            <p className="text-sm text-slate-500">Aucune entreprise pour l’instant.</p>
+            <p className="muted small">Aucune entreprise pour l’instant.</p>
           ) : (
-            <ul className="space-y-1.5">
+            <ul className="stack-2" style={{ listStyle: 'none', margin: 0, padding: 0 }}>
               {stats.perStatus.map((s) => (
-                <li key={s.key} className="flex items-center gap-2">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${s.dot}`} />
-                  <span className="flex-1 truncate text-sm text-slate-300">{s.label}</span>
-                  <span className="font-mono text-sm font-semibold tabular-nums text-slate-100">
+                <li key={s.key} className="row" style={{ '--pill-hue': statusOf(s.key).color }}>
+                  <span className="status-dot" />
+                  <span className="flex-1 truncate small muted">{s.label}</span>
+                  <span className="mono-nums small" style={{ fontWeight: 600 }}>
                     {s.count}
                   </span>
                 </li>

@@ -4,9 +4,9 @@ import { IconClock, IconCheck } from '../ui/icons.jsx'
 
 // Kind → small French tag + accent color for the timeline dot.
 const KIND = {
-  note: { label: 'Note', dot: 'bg-slate-400' },
-  status: { label: 'Statut', dot: 'bg-violet-400' },
-  relance: { label: 'Relance', dot: 'bg-teal-400' },
+  note: { label: 'Note', color: 'var(--text-faint)' },
+  status: { label: 'Statut', color: 'var(--accent)' },
+  relance: { label: 'Relance', color: 'var(--primary)' },
 }
 
 function stamp(at) {
@@ -39,52 +39,50 @@ export default function HistoryTimeline({ entries = [], onAddNote }) {
 
   return (
     <div>
-      <div className="flex items-center gap-2 rounded-t-xl border border-slate-800 bg-slate-950 px-3 py-2">
+      <div className="row">
         <textarea
           rows={1}
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Ajouter une note horodatée…"
-          className="min-h-11 flex-1 resize-none bg-transparent py-1.5 text-[15px] text-slate-100 placeholder:text-slate-600 focus:outline-none"
+          className="textarea flex-1"
+          style={{ minHeight: 44, resize: 'none' }}
         />
         <button
           type="button"
           onClick={add}
           disabled={!text.trim()}
           aria-label="Ajouter la note"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-teal-500 text-slate-950 disabled:opacity-40"
+          className="btn btn-primary btn-icon"
+          style={{ width: 44, height: 44, flex: 'none' }}
         >
-          <IconCheck className="h-5 w-5" />
+          <IconCheck />
         </button>
       </div>
 
       {ordered.length === 0 ? (
-        <p className="rounded-b-xl border border-t-0 border-slate-800 bg-slate-950 px-3 py-3 text-sm text-slate-500">
+        <p className="muted small" style={{ margin: '8px 0 0' }}>
           Aucun mouvement pour l’instant. Tes notes, changements de statut et
           relances apparaîtront ici, horodatés.
         </p>
       ) : (
-        <ul className="space-y-0 rounded-b-xl border border-t-0 border-slate-800 bg-slate-950">
-          {ordered.map((e, i) => {
+        <ul className="timeline" style={{ listStyle: 'none', margin: '12px 0 0' }}>
+          {ordered.map((e) => {
             const k = KIND[e.kind] ?? KIND.note
             return (
-              <li
-                key={e.id}
-                className={`flex gap-3 px-3 py-2.5 ${i > 0 ? 'border-t border-slate-800/70' : ''}`}
-              >
-                <span className={`mt-1.5 h-2 w-2 shrink-0 rounded-full ${k.dot}`} />
-                <div className="min-w-0 flex-1">
-                  <p className="flex items-center gap-1.5 font-mono text-[11px] tabular-nums text-slate-500">
-                    <IconClock className="h-3 w-3" />
-                    {stamp(e.at)}
-                    <span className="rounded bg-slate-800 px-1.5 py-px text-[10px] font-medium text-slate-400">
-                      {k.label}
-                    </span>
-                  </p>
-                  <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-slate-200">
-                    {e.text}
-                  </p>
-                </div>
+              <li key={e.id}>
+                <p className="row tiny mono-nums faint" style={{ margin: 0, gap: 6 }}>
+                  <span className="status-dot" style={{ '--pill-hue': k.color }} />
+                  <IconClock size={12} />
+                  {stamp(e.at)}
+                  <span className="chip">{k.label}</span>
+                </p>
+                <p
+                  className="small"
+                  style={{ margin: '2px 0 0', whiteSpace: 'pre-wrap', overflowWrap: 'break-word' }}
+                >
+                  {e.text}
+                </p>
               </li>
             )
           })}

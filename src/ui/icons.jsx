@@ -1,15 +1,18 @@
 // Minimal inline icon set (24x24 outline, currentColor) — no icon dependency.
 
-function Svg({ children, className = 'h-5 w-5', filled = false }) {
+function Svg({ children, size = 20, className, style, filled = false }) {
   return (
     <svg
       viewBox="0 0 24 24"
+      width={size}
+      height={size}
       fill={filled ? 'currentColor' : 'none'}
       stroke="currentColor"
       strokeWidth="1.8"
       strokeLinecap="round"
       strokeLinejoin="round"
       className={className}
+      style={style}
       aria-hidden="true"
     >
       {children}
@@ -143,8 +146,8 @@ export const IconChart = (p) => (
   </Svg>
 )
 
-export const IconLinkedIn = ({ className = 'h-5 w-5' }) => (
-  <svg viewBox="0 0 24 24" fill="currentColor" className={className} aria-hidden="true">
+export const IconLinkedIn = ({ size = 20, className }) => (
+  <svg viewBox="0 0 24 24" width={size} height={size} fill="currentColor" className={className} aria-hidden="true">
     <path d="M6.94 5a2 2 0 1 1-4-.02 2 2 0 0 1 4 .02zM7 8.48H3V21h4V8.48zm6.32 0H9.34V21h3.94v-6.57c0-3.66 4.77-4 4.77 0V21H22v-7.93c0-6.17-7.06-5.94-8.68-2.91V8.48z" />
   </svg>
 )

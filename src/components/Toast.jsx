@@ -11,34 +11,22 @@ export default function Toast({ toast, onDismiss }) {
 
   if (!toast) return null
   return createPortal(
-    <div
-      className="fixed inset-x-0 z-50 flex justify-center px-4"
-      style={{ bottom: 'calc(env(safe-area-inset-bottom) + 5rem)' }}
-    >
-      <div
-        className={`flex max-w-md items-center gap-3 rounded-2xl border px-4 py-3 text-sm font-medium shadow-xl ${
-          toast.kind === 'error'
-            ? 'border-rose-500/40 bg-rose-950 text-rose-200'
-            : 'border-slate-700 bg-slate-800 text-slate-100'
-        }`}
-        role="status"
-      >
-        <span>{toast.message}</span>
-        {toast.action && (
-          <button
-            type="button"
-            onClick={() => {
-              // Dismiss first: the action may show its own follow-up toast,
-              // which must not be clobbered by this dismissal.
-              onDismiss()
-              toast.action.onClick()
-            }}
-            className="min-h-11 shrink-0 rounded-lg bg-teal-500/15 px-3 font-semibold text-teal-300 active:bg-teal-500/25"
-          >
-            {toast.action.label}
-          </button>
-        )}
-      </div>
+    <div className={`toast ${toast.kind === 'error' ? 'toast-error' : ''}`} role="status">
+      <span>{toast.message}</span>
+      {toast.action && (
+        <button
+          type="button"
+          onClick={() => {
+            // Dismiss first: the action may show its own follow-up toast,
+            // which must not be clobbered by this dismissal.
+            onDismiss()
+            toast.action.onClick()
+          }}
+          className="btn btn-sm btn-primary"
+        >
+          {toast.action.label}
+        </button>
+      )}
     </div>,
     document.body,
   )
